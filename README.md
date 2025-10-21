@@ -1,15 +1,36 @@
 # Image → 3D Model → Voxel File Automation
 
-This Python script automates the conversion of images to 3D models using Meshy API, then converts them to voxel files using the Drububu voxelizer.
+A web-based application that automates the conversion of images to 3D models using Meshy API, then converts them to voxel files using the Drububu voxelizer.
 
-**Features:**
-- Interactive file selection dialogs
-- Two-step Meshy workflow: 3D model creation + texture application
-- Automatic zip file extraction
-- Download folder management
-- Full browser automation with Drububu voxelizer
+## 🌐 **Web Interface Features**
 
-**Ready to use in Replit, GitHub Codespaces, or any web-based IDE!**
+- **🎨 Beautiful UI** - Modern, responsive web interface
+- **📁 Drag & Drop Upload** - Easy image file selection
+- **📊 Real-time Progress** - Live status updates and progress tracking
+- **📥 Instant Downloads** - Direct download links for all generated files
+- **🔄 Two-step Meshy Workflow** - 3D model creation + texture application
+- **📦 Auto-extraction** - Handles zipped model files automatically
+- **🌍 Replit Ready** - Works perfectly in Replit and other web IDEs
+
+## 🚀 **Quick Start (Replit)**
+
+1. **Click "Run"** in Replit - the web app starts automatically!
+2. **Upload your image** using drag & drop or click to select
+3. **Click "Start Conversion"** and watch the progress
+4. **Download your files** when complete!
+
+## 🖥️ **Local Usage**
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+playwright install chromium
+
+# Start the web app
+python3 app.py
+
+# Open http://localhost:5000 in your browser
+```
 
 ## Quick Start (Replit/GitHub Codespaces)
 

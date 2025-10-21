@@ -1,3 +1,3 @@
-run = "python3 main.py"
+run = "python3 start.py"
 modules = ["python-3.11"]
-entrypoint = "main.py"
+entrypoint = "start.py"
