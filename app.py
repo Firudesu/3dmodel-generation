@@ -51,65 +51,14 @@ def update_status(status, percentage=0, task="", error=""):
     if error:
         error_message = error
 
-def create_3d_model(image_path):
-    """Create 3D model from image using Meshy API"""
-    update_status("Creating 3D model...", 20, "Uploading image to Meshy API")
-    
-    headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
-    
-    file_ext = os.path.splitext(image_path)[1].lower()
-    content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
-    
-    with open(image_path, 'rb') as image_file:
-        files = {'image': (os.path.basename(image_path), image_file, content_type)}
-        data = {'mode': 'preview', 'art_style': 'realistic'}
-        
-        # Try the correct Meshy API endpoint
-        response = requests.post(MESHY_TEXTURE_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
-    
-    if response.status_code != 200:
-        raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
-    
-    result = response.json()
-    task_id = result.get('result')
-    if not task_id:
-        raise Exception(f"Failed to get task ID from Meshy API: {result}")
-    
-    update_status("Creating 3D model...", 30, f"Model creation started (ID: {task_id})")
-    return task_id
-
-def apply_texture_to_model(model_task_id, image_path):
-    """Apply texture to the 3D model"""
-    update_status("Applying texture...", 50, "Uploading texture to Meshy API")
-    
-    headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
-    
-    file_ext = os.path.splitext(image_path)[1].lower()
-    content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
-    
-    with open(image_path, 'rb') as image_file:
-        files = {'image': (os.path.basename(image_path), image_file, content_type)}
-        data = {'mode': 'preview', 'art_style': 'realistic', 'model_task_id': model_task_id}
-        
-        response = requests.post(MESHY_TEXTURE_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
-    
-    if response.status_code != 200:
-        raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
-    
-    result = response.json()
-    task_id = result.get('result')
-    if not task_id:
-        raise Exception(f"Failed to get texture task ID from Meshy API: {result}")
-    
-    update_status("Applying texture...", 60, f"Texture application started (ID: {task_id})")
-    return task_id
 
 def poll_meshy_task(task_id, task_type="texture"):
     """Poll Meshy API until task is complete"""
     update_status(f"Processing {task_type}...", 70, f"Waiting for {task_type} completion")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
-    endpoint = f"{MESHY_BASE_URL}/image-to-3d/{task_id}" if task_type == "model" else f"{MESHY_BASE_URL}/texture-to-3d/{task_id}"
+    # Use texture-to-3d endpoint for both model and texture tasks
+    endpoint = f"{MESHY_BASE_URL}/texture-to-3d/{task_id}"
     
     max_attempts = 60
     attempt = 0
@@ -226,19 +175,36 @@ def process_image_async(image_path):
     """Process image in background thread"""
     global generated_files
     try:
-        # Step 1: Create 3D model
-        model_task_id = create_3d_model(image_path)
-        model_result = poll_meshy_task(model_task_id, "model")
+        # Use texture-to-3d API directly (simplified workflow)
+        update_status("Creating 3D model...", 20, "Uploading image to Meshy API")
         
-        # Step 2: Apply texture
-        texture_task_id = apply_texture_to_model(model_task_id, image_path)
-        texture_result = poll_meshy_task(texture_task_id, "texture")
+        headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
         
-        # Step 3: Download and extract files
+        file_ext = os.path.splitext(image_path)[1].lower()
+        content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
+        
+        with open(image_path, 'rb') as image_file:
+            files = {'image': (os.path.basename(image_path), image_file, content_type)}
+            data = {'mode': 'preview', 'art_style': 'realistic'}
+            
+            response = requests.post(MESHY_TEXTURE_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
+        
+        if response.status_code != 200:
+            raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
+        
+        result = response.json()
+        task_id = result.get('result')
+        if not task_id:
+            raise Exception(f"Failed to get task ID from Meshy API: {result}")
+        
+        # Poll for completion
+        texture_result = poll_meshy_task(task_id, "texture")
+        
+        # Download and extract files
         zip_path = download_meshy_files(texture_result)
         obj_file, texture_files = extract_model_files(zip_path)
         
-        # Step 4: Convert to voxel
+        # Convert to voxel
         vox_file = convert_to_voxel(obj_file, texture_files)
         
         # Update generated files list
