@@ -18,19 +18,26 @@ import os
 import time
 import requests
 import json
+import zipfile
+import tkinter as tk
+from tkinter import filedialog, messagebox
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 import tempfile
 import shutil
 
 # Configuration - Update these variables
-MESHY_API_KEY = "YOUR_MESHY_API_KEY_HERE"  # Replace with your actual Meshy API key
-INPUT_IMAGE_PATH = "input/sample_image.jpg"  # Path to your input image
+MESHY_API_KEY = "msy_pQhyJ89ykjyGorHDhFJn7NJ2GzPNGMQ4qE77"  # Meshy API key
+INPUT_IMAGE_PATH = None  # Will be set via file selection dialog
 TEST_MODE = False  # Set to True to skip Meshy API and test voxel conversion only
 
 # API endpoints
 MESHY_BASE_URL = "https://api.meshy.ai/v2"
 MESHY_TEXTURE_ENDPOINT = f"{MESHY_BASE_URL}/texture-to-3d"
+MESHY_MODEL_ENDPOINT = f"{MESHY_BASE_URL}/image-to-3d"
+
+# File management
+DOWNLOAD_FOLDER = None  # Will be set via folder selection dialog
 
 # Output directories
 OUTPUT_DIR = Path("output")
@@ -43,15 +50,53 @@ def setup_directories():
     VOXEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print("✓ Output directories created")
 
-def check_input_file():
-    """Check if input image exists"""
-    if not os.path.exists(INPUT_IMAGE_PATH):
-        raise FileNotFoundError(f"Input image not found: {INPUT_IMAGE_PATH}")
-    print(f"✓ Input image found: {INPUT_IMAGE_PATH}")
+def select_download_folder():
+    """Ask user to select a download folder"""
+    global DOWNLOAD_FOLDER
+    
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    
+    messagebox.showinfo("Download Folder", "Please select a folder for downloading and uploading files.")
+    
+    folder = filedialog.askdirectory(title="Select Download Folder")
+    if folder:
+        DOWNLOAD_FOLDER = folder
+        print(f"✓ Download folder set to: {DOWNLOAD_FOLDER}")
+        return True
+    else:
+        messagebox.showerror("Error", "No folder selected. Please run the script again and select a folder.")
+        return False
 
-def upload_image_to_meshy():
-    """Upload image to Meshy API and start 3D generation"""
-    print("🔄 Uploading image to Meshy API...")
+def select_input_image():
+    """Ask user to select an input image"""
+    global INPUT_IMAGE_PATH
+    
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    
+    file_path = filedialog.askopenfilename(
+        title="Select Input Image",
+        filetypes=[
+            ("Image files", "*.jpg *.jpeg *.png *.gif *.bmp"),
+            ("JPEG files", "*.jpg *.jpeg"),
+            ("PNG files", "*.png"),
+            ("All files", "*.*")
+        ]
+    )
+    
+    if file_path:
+        INPUT_IMAGE_PATH = file_path
+        print(f"✓ Input image selected: {INPUT_IMAGE_PATH}")
+        return True
+    else:
+        messagebox.showerror("Error", "No image selected. Please run the script again and select an image.")
+        return False
+
+
+def create_3d_model():
+    """Create 3D model from image using Meshy API"""
+    print("🔄 Creating 3D model from image...")
     
     headers = {
         "Authorization": f"Bearer {MESHY_API_KEY}",
@@ -72,7 +117,7 @@ def upload_image_to_meshy():
         }
         
         response = requests.post(
-            MESHY_TEXTURE_ENDPOINT,
+            MESHY_MODEL_ENDPOINT,
             headers=headers,
             files=files,
             data=data,
@@ -88,25 +133,71 @@ def upload_image_to_meshy():
     if not task_id:
         raise Exception(f"Failed to get task ID from Meshy API: {result}")
     
-    print(f"✓ Image uploaded successfully. Task ID: {task_id}")
+    print(f"✓ 3D model creation started. Task ID: {task_id}")
     return task_id
 
-def poll_meshy_task(task_id):
-    """Poll Meshy API until 3D model generation is complete"""
-    print("🔄 Waiting for 3D model generation...")
+def apply_texture_to_model(model_task_id):
+    """Apply texture to the 3D model"""
+    print("🔄 Applying texture to 3D model...")
     
     headers = {
         "Authorization": f"Bearer {MESHY_API_KEY}",
     }
     
+    # Determine content type based on file extension
+    file_ext = os.path.splitext(INPUT_IMAGE_PATH)[1].lower()
+    content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
+    
+    with open(INPUT_IMAGE_PATH, 'rb') as image_file:
+        files = {
+            'image': (os.path.basename(INPUT_IMAGE_PATH), image_file, content_type)
+        }
+        
+        data = {
+            'mode': 'preview',
+            'art_style': 'realistic',
+            'model_task_id': model_task_id  # Reference the 3D model
+        }
+        
+        response = requests.post(
+            MESHY_TEXTURE_ENDPOINT,
+            headers=headers,
+            files=files,
+            data=data,
+            timeout=30
+        )
+    
+    if response.status_code != 200:
+        raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
+    
+    result = response.json()
+    task_id = result.get('result')
+    
+    if not task_id:
+        raise Exception(f"Failed to get texture task ID from Meshy API: {result}")
+    
+    print(f"✓ Texture application started. Task ID: {task_id}")
+    return task_id
+
+def poll_meshy_task(task_id, task_type="texture"):
+    """Poll Meshy API until task is complete"""
+    print(f"🔄 Waiting for {task_type} task completion...")
+    
+    headers = {
+        "Authorization": f"Bearer {MESHY_API_KEY}",
+    }
+    
+    # Choose the correct endpoint based on task type
+    if task_type == "model":
+        endpoint = f"{MESHY_BASE_URL}/image-to-3d/{task_id}"
+    else:  # texture
+        endpoint = f"{MESHY_BASE_URL}/texture-to-3d/{task_id}"
+    
     max_attempts = 60  # 5 minutes max
     attempt = 0
     
     while attempt < max_attempts:
-        response = requests.get(
-            f"{MESHY_BASE_URL}/texture-to-3d/{task_id}",
-            headers=headers
-        )
+        response = requests.get(endpoint, headers=headers)
         
         if response.status_code != 200:
             raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
@@ -117,15 +208,15 @@ def poll_meshy_task(task_id):
         print(f"  Status: {status} (attempt {attempt + 1}/{max_attempts})")
         
         if status == 'SUCCEEDED':
-            print("✓ 3D model generation completed!")
+            print(f"✓ {task_type} task completed!")
             return result
         elif status == 'FAILED':
-            raise Exception(f"3D model generation failed: {result.get('error', 'Unknown error')}")
+            raise Exception(f"{task_type} task failed: {result.get('error', 'Unknown error')}")
         
         time.sleep(5)  # Wait 5 seconds before next poll
         attempt += 1
     
-    raise Exception("3D model generation timed out")
+    raise Exception(f"{task_type} task timed out")
 
 def download_meshy_files(result):
     """Download .obj, .mtl, and texture files from Meshy"""
@@ -140,8 +231,8 @@ def download_meshy_files(result):
     if response.status_code != 200:
         raise Exception(f"Failed to download model: {response.status_code}")
     
-    # Save the downloaded file
-    model_zip_path = MESHY_OUTPUT_DIR / "model.zip"
+    # Save the downloaded file to download folder
+    model_zip_path = Path(DOWNLOAD_FOLDER) / "meshy_model.zip"
     with open(model_zip_path, 'wb') as f:
         f.write(response.content)
     
@@ -152,41 +243,49 @@ def extract_model_files(zip_path):
     """Extract .obj, .mtl, and texture files from the downloaded zip"""
     print("🔄 Extracting model files...")
     
-    import zipfile
+    # Extract to download folder
+    extract_dir = Path(DOWNLOAD_FOLDER) / "meshy_extracted"
+    extract_dir.mkdir(exist_ok=True)
     
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(MESHY_OUTPUT_DIR)
+        zip_ref.extractall(extract_dir)
     
     # Find the .obj file
-    obj_files = list(MESHY_OUTPUT_DIR.glob("*.obj"))
+    obj_files = list(extract_dir.glob("**/*.obj"))
     if not obj_files:
         raise Exception("No .obj file found in extracted model")
     
     obj_file = obj_files[0]
+    
+    # Find texture files
+    texture_files = list(extract_dir.glob("**/*.jpg")) + list(extract_dir.glob("**/*.png"))
+    
     print(f"✓ Model files extracted. OBJ file: {obj_file}")
-    return obj_file
+    if texture_files:
+        print(f"✓ Texture files found: {[f.name for f in texture_files]}")
+    
+    return obj_file, texture_files
 
-def convert_to_voxel(obj_file_path):
+def convert_to_voxel(obj_file_path, texture_files=None):
     """Use Playwright to convert OBJ to VOX using Drububu voxelizer"""
     print("🔄 Converting OBJ to VOX using Drububu voxelizer...")
     
     with sync_playwright() as p:
         # Launch browser with download handling
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=False)  # Set to False to see the process
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
         
         try:
             # Navigate to Drububu voxelizer
             print("  Opening Drububu voxelizer...")
-            page.goto("https://drububu.com/miscellaneous/voxelizer/?out=vox")
+            page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj")
             
             # Wait for page to load
             page.wait_for_load_state("networkidle")
             
             # Upload the OBJ file
             print("  Uploading OBJ file...")
-            # Use the specific file input for 3D models (not textures)
             try:
                 file_input = page.locator('input[type="file"]#file_input')
                 file_input.set_input_files(str(obj_file_path))
@@ -195,9 +294,23 @@ def convert_to_voxel(obj_file_path):
                 file_input = page.locator('input[type="file"][accept*=".obj"]').first
                 file_input.set_input_files(str(obj_file_path))
             
+            # Wait for OBJ processing
+            print("  Waiting for OBJ processing...")
+            page.wait_for_timeout(5000)
+            
+            # Upload texture file if available
+            if texture_files:
+                print("  Uploading texture file...")
+                try:
+                    texture_input = page.locator('input[type="file"]#file_input_texture')
+                    texture_input.set_input_files(str(texture_files[0]))
+                    print(f"  Uploaded texture: {texture_files[0].name}")
+                except:
+                    print("  Could not upload texture file")
+            
             # Wait for processing
-            print("  Waiting for processing...")
-            page.wait_for_timeout(10000)  # Wait 10 seconds for processing
+            print("  Waiting for final processing...")
+            page.wait_for_timeout(10000)
             
             # Set up download handling
             with page.expect_download() as download_info:
@@ -207,8 +320,8 @@ def convert_to_voxel(obj_file_path):
                 # Try different selectors for download button
                 download_selectors = [
                     'text=Download',
-                    'text=VOX',
-                    'a[href*=".vox"]',
+                    'text=OBJ',
+                    'a[href*=".obj"]',
                     'button:has-text("Download")',
                     'input[type="submit"]'
                 ]
@@ -234,8 +347,8 @@ def convert_to_voxel(obj_file_path):
                         for (let el of elements) {
                             const text = el.textContent.toLowerCase();
                             const href = el.href || '';
-                            if (text.includes('download') || text.includes('vox') || 
-                                href.includes('.vox') || href.includes('download')) {
+                            if (text.includes('download') || text.includes('obj') || 
+                                href.includes('.obj') || href.includes('download')) {
                                 el.click();
                                 break;
                             }
@@ -244,7 +357,7 @@ def convert_to_voxel(obj_file_path):
             
             # Handle the download
             download = download_info.value
-            vox_file_path = VOXEL_OUTPUT_DIR / "model.vox"
+            vox_file_path = Path(DOWNLOAD_FOLDER) / "model.vox"
             download.save_as(vox_file_path)
             
             print(f"✓ VOX file downloaded to {vox_file_path}")
@@ -254,7 +367,7 @@ def convert_to_voxel(obj_file_path):
             print("  Creating placeholder VOX file...")
             
             # Create a placeholder file if download fails
-            vox_file_path = VOXEL_OUTPUT_DIR / "model.vox"
+            vox_file_path = Path(DOWNLOAD_FOLDER) / "model.vox"
             with open(vox_file_path, 'w') as f:
                 f.write("# Placeholder VOX file\n# Download failed - check the website manually")
             
@@ -265,42 +378,54 @@ def convert_to_voxel(obj_file_path):
 
 def main():
     """Main function to orchestrate the entire process"""
-    print("🚀 Starting Image → 3D Model → Voxel conversion...")
+    print("🚀 Starting Image → 3D Model → Voxel File conversion...")
     print("=" * 50)
     
     try:
         # Setup
         setup_directories()
-        check_input_file()
+        
+        # Select download folder
+        if not select_download_folder():
+            return 1
+        
+        # Select input image
+        if not select_input_image():
+            return 1
         
         if TEST_MODE:
             print("🧪 Running in TEST MODE - skipping Meshy API")
             # Create a dummy OBJ file for testing
-            obj_file = MESHY_OUTPUT_DIR / "test_model.obj"
+            obj_file = Path(DOWNLOAD_FOLDER) / "test_model.obj"
             with open(obj_file, 'w') as f:
                 f.write("# Test OBJ file\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
             print(f"✓ Created test OBJ file: {obj_file}")
+            texture_files = []
         else:
-            if MESHY_API_KEY == "YOUR_MESHY_API_KEY_HERE":
-                raise Exception("Please set your MESHY_API_KEY in the script")
+            # Step 1: Create 3D model
+            print("\n📦 Step 1: Creating 3D model with Meshy API")
+            model_task_id = create_3d_model()
+            model_result = poll_meshy_task(model_task_id, "model")
             
-            # Step 1: Generate 3D model with Meshy
-            print("\n📦 Step 1: Generating 3D model with Meshy API")
-            task_id = upload_image_to_meshy()
-            result = poll_meshy_task(task_id)
-            zip_path = download_meshy_files(result)
-            obj_file = extract_model_files(zip_path)
+            # Step 2: Apply texture to model
+            print("\n🎨 Step 2: Applying texture to 3D model")
+            texture_task_id = apply_texture_to_model(model_task_id)
+            texture_result = poll_meshy_task(texture_task_id, "texture")
+            
+            # Step 3: Download files
+            print("\n📥 Step 3: Downloading model files")
+            zip_path = download_meshy_files(texture_result)
+            obj_file, texture_files = extract_model_files(zip_path)
         
-        # Step 2: Convert to voxel with Drububu
-        print("\n🎲 Step 2: Converting to voxel format")
-        vox_file = convert_to_voxel(obj_file)
+        # Step 4: Convert to voxel with Drububu
+        print("\n🎲 Step 4: Converting to voxel format")
+        vox_file = convert_to_voxel(obj_file, texture_files)
         
         # Success!
         print("\n" + "=" * 50)
         print("✅ Conversion complete!")
         print(f"📁 Files saved to:")
-        print(f"   - 3D Model: {MESHY_OUTPUT_DIR}")
-        print(f"   - Voxel: {VOXEL_OUTPUT_DIR}")
+        print(f"   - Download folder: {DOWNLOAD_FOLDER}")
         print(f"   - VOX file: {vox_file}")
         
     except Exception as e:
