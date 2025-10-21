@@ -2,7 +2,21 @@
 
 This Python script automates the conversion of images to 3D models using Meshy API, then converts them to voxel files using the Drububu voxelizer.
 
-## Setup
+**Ready to use in Replit, GitHub Codespaces, or any web-based IDE!**
+
+## Quick Start (Replit/GitHub Codespaces)
+
+1. **Get a Meshy API key** from [Meshy AI](https://meshy.ai/)
+2. **Update configuration** in `main.py`:
+   - Set your `MESHY_API_KEY`
+   - Set the `INPUT_IMAGE_PATH` to your image file
+3. **Place your image** in the `input/` directory
+4. **Run the automation**:
+   ```bash
+   python3 run.py
+   ```
+
+## Manual Setup
 
 1. Install dependencies:
 ```bash
@@ -21,7 +35,7 @@ playwright install chromium
 ## Usage
 
 ```bash
-python main.py
+python3 main.py
 ```
 
 ## Output
