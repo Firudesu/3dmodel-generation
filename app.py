@@ -24,9 +24,9 @@ app.config['OUTPUT_FOLDER'] = 'output'
 
 # Configuration
 MESHY_API_KEY = "msy_pQhyJ89ykjyGorHDhFJn7NJ2GzPNGMQ4qE77"
-MESHY_BASE_URL = "https://api.meshy.ai/v2"
-MESHY_TEXTURE_ENDPOINT = f"{MESHY_BASE_URL}/texture-to-3d"
-MESHY_MODEL_ENDPOINT = f"{MESHY_BASE_URL}/image-to-3d"
+MESHY_BASE_URL = "https://api.meshy.ai"
+MESHY_IMAGE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d"
+MESHY_RETEXTURE_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/retexture"
 
 # Global variables for tracking progress
 current_status = "Ready"
