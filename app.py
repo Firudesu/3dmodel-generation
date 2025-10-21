@@ -64,7 +64,8 @@ def create_3d_model(image_path):
         files = {'image': (os.path.basename(image_path), image_file, content_type)}
         data = {'mode': 'preview', 'art_style': 'realistic'}
         
-        response = requests.post(MESHY_MODEL_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
+        # Try the correct Meshy API endpoint
+        response = requests.post(MESHY_TEXTURE_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
     
     if response.status_code != 200:
         raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
