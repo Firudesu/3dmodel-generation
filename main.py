@@ -94,9 +94,9 @@ def select_input_image():
         return False
 
 
-def create_3d_model():
-    """Create 3D model from image using Meshy API"""
-    print("🔄 Creating 3D model from image...")
+def upload_image_to_meshy():
+    """Upload image to Meshy API and start 3D generation"""
+    print("🔄 Uploading image to Meshy API...")
     
     headers = {
         "Authorization": f"Bearer {MESHY_API_KEY}",
@@ -117,7 +117,7 @@ def create_3d_model():
         }
         
         response = requests.post(
-            MESHY_MODEL_ENDPOINT,
+            MESHY_TEXTURE_ENDPOINT,
             headers=headers,
             files=files,
             data=data,
@@ -133,50 +133,7 @@ def create_3d_model():
     if not task_id:
         raise Exception(f"Failed to get task ID from Meshy API: {result}")
     
-    print(f"✓ 3D model creation started. Task ID: {task_id}")
-    return task_id
-
-def apply_texture_to_model(model_task_id):
-    """Apply texture to the 3D model"""
-    print("🔄 Applying texture to 3D model...")
-    
-    headers = {
-        "Authorization": f"Bearer {MESHY_API_KEY}",
-    }
-    
-    # Determine content type based on file extension
-    file_ext = os.path.splitext(INPUT_IMAGE_PATH)[1].lower()
-    content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
-    
-    with open(INPUT_IMAGE_PATH, 'rb') as image_file:
-        files = {
-            'image': (os.path.basename(INPUT_IMAGE_PATH), image_file, content_type)
-        }
-        
-        data = {
-            'mode': 'preview',
-            'art_style': 'realistic',
-            'model_task_id': model_task_id  # Reference the 3D model
-        }
-        
-        response = requests.post(
-            MESHY_TEXTURE_ENDPOINT,
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=30
-        )
-    
-    if response.status_code != 200:
-        raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
-    
-    result = response.json()
-    task_id = result.get('result')
-    
-    if not task_id:
-        raise Exception(f"Failed to get texture task ID from Meshy API: {result}")
-    
-    print(f"✓ Texture application started. Task ID: {task_id}")
+    print(f"✓ Image uploaded successfully. Task ID: {task_id}")
     return task_id
 
 def poll_meshy_task(task_id, task_type="texture"):
@@ -402,23 +359,18 @@ def main():
             print(f"✓ Created test OBJ file: {obj_file}")
             texture_files = []
         else:
-            # Step 1: Create 3D model
-            print("\n📦 Step 1: Creating 3D model with Meshy API")
-            model_task_id = create_3d_model()
-            model_result = poll_meshy_task(model_task_id, "model")
+            # Step 1: Generate 3D model with texture
+            print("\n📦 Step 1: Generating 3D model with Meshy API")
+            task_id = upload_image_to_meshy()
+            result = poll_meshy_task(task_id)
             
-            # Step 2: Apply texture to model
-            print("\n🎨 Step 2: Applying texture to 3D model")
-            texture_task_id = apply_texture_to_model(model_task_id)
-            texture_result = poll_meshy_task(texture_task_id, "texture")
-            
-            # Step 3: Download files
-            print("\n📥 Step 3: Downloading model files")
-            zip_path = download_meshy_files(texture_result)
+            # Step 2: Download files
+            print("\n📥 Step 2: Downloading model files")
+            zip_path = download_meshy_files(result)
             obj_file, texture_files = extract_model_files(zip_path)
         
-        # Step 4: Convert to voxel with Drububu
-        print("\n🎲 Step 4: Converting to voxel format")
+        # Step 3: Convert to voxel with Drububu
+        print("\n🎲 Step 3: Converting to voxel format")
         vox_file = convert_to_voxel(obj_file, texture_files)
         
         # Success!
