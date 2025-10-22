@@ -28,6 +28,11 @@ MESHY_BASE_URL = "https://api.meshy.ai"
 MESHY_IMAGE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d"
 MESHY_RETEXTURE_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/retexture"
 
+# Debug: Print API endpoints
+print(f"Image to 3D endpoint: {MESHY_IMAGE_TO_3D_ENDPOINT}")
+print(f"Retexture endpoint: {MESHY_RETEXTURE_ENDPOINT}")
+print(f"API Key (first 10 chars): {MESHY_API_KEY[:10]}...")
+
 # Global variables for tracking progress
 current_status = "Ready"
 progress_percentage = 0
@@ -209,28 +214,33 @@ def create_image_to_3d_task(image_path):
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
-    # Convert image to base64 data URI
-    import base64
+    # Try using file upload instead of base64 data URI
+    file_ext = os.path.splitext(image_path)[1].lower()
+    content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
+    
     with open(image_path, 'rb') as image_file:
-        image_data = image_file.read()
-        file_ext = os.path.splitext(image_path)[1].lower()
-        mime_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
-        base64_data = base64.b64encode(image_data).decode('utf-8')
-        image_data_uri = f"data:{mime_type};base64,{base64_data}"
+        files = {'image': (os.path.basename(image_path), image_file, content_type)}
+        data = {
+            'ai_model': 'meshy-5',
+            'enable_pbr': 'true'
+        }
+        
+        response = requests.post(MESHY_IMAGE_TO_3D_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
     
-    # Create Image to 3D task
-    data = {
-        "image_url": image_data_uri,
-        "ai_model": "meshy-5",
-        "enable_pbr": True
-    }
-    
-    response = requests.post(MESHY_IMAGE_TO_3D_ENDPOINT, headers=headers, json=data, timeout=30)
+    # Debug: Print response details
+    print(f"Response status: {response.status_code}")
+    print(f"Response headers: {dict(response.headers)}")
+    print(f"Response content (first 500 chars): {response.text[:500]}")
     
     if response.status_code != 200:
         raise Exception(f"Meshy Image to 3D API error: {response.status_code} - {response.text}")
     
-    result = response.json()
+    # Check if response is JSON
+    try:
+        result = response.json()
+    except ValueError as e:
+        raise Exception(f"Invalid JSON response from Meshy API: {e}. Response: {response.text[:200]}")
+    
     task_id = result.get('result')
     if not task_id:
         raise Exception(f"Failed to get task ID from Meshy API: {result}")
@@ -264,10 +274,19 @@ def create_retexture_task(model_task_id, image_path):
     
     response = requests.post(MESHY_RETEXTURE_ENDPOINT, headers=headers, json=data, timeout=30)
     
+    # Debug: Print response details
+    print(f"Retexture response status: {response.status_code}")
+    print(f"Retexture response content (first 500 chars): {response.text[:500]}")
+    
     if response.status_code != 200:
         raise Exception(f"Meshy Retexture API error: {response.status_code} - {response.text}")
     
-    result = response.json()
+    # Check if response is JSON
+    try:
+        result = response.json()
+    except ValueError as e:
+        raise Exception(f"Invalid JSON response from Meshy Retexture API: {e}. Response: {response.text[:200]}")
+    
     task_id = result.get('result')
     if not task_id:
         raise Exception(f"Failed to get retexture task ID from Meshy API: {result}")
