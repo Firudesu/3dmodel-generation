@@ -26,14 +26,23 @@ app.config['OUTPUT_FOLDER'] = 'output'
 MESHY_API_KEY = "msy_pQhyJ89ykjyGorHDhFJn7NJ2GzPNGMQ4qE77"
 MESHY_BASE_URL = "https://api.meshy.ai"
 
-# Try v2 API endpoints (more commonly used)
-MESHY_IMAGE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/v2/image-to-3d"
-MESHY_TEXTURE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/v2/texture-to-3d"
+# Try different API endpoint formats
+MESHY_IMAGE_TO_3D_ENDPOINT_V1 = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d"
+MESHY_IMAGE_TO_3D_ENDPOINT_V2 = f"{MESHY_BASE_URL}/v2/image-to-3d"
+MESHY_TEXTURE_TO_3D_ENDPOINT_V1 = f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d"
+MESHY_TEXTURE_TO_3D_ENDPOINT_V2 = f"{MESHY_BASE_URL}/v2/texture-to-3d"
+
+# Start with v1 openapi endpoints
+MESHY_IMAGE_TO_3D_ENDPOINT = MESHY_IMAGE_TO_3D_ENDPOINT_V1
+MESHY_TEXTURE_TO_3D_ENDPOINT = MESHY_TEXTURE_TO_3D_ENDPOINT_V1
 
 # Debug: Print API endpoints
-print(f"Using v2 API endpoints:")
-print(f"Image to 3D endpoint: {MESHY_IMAGE_TO_3D_ENDPOINT}")
-print(f"Texture to 3D endpoint: {MESHY_TEXTURE_TO_3D_ENDPOINT}")
+print(f"Testing API endpoints:")
+print(f"Image to 3D v1: {MESHY_IMAGE_TO_3D_ENDPOINT_V1}")
+print(f"Image to 3D v2: {MESHY_IMAGE_TO_3D_ENDPOINT_V2}")
+print(f"Texture to 3D v1: {MESHY_TEXTURE_TO_3D_ENDPOINT_V1}")
+print(f"Texture to 3D v2: {MESHY_TEXTURE_TO_3D_ENDPOINT_V2}")
+print(f"Using: {MESHY_IMAGE_TO_3D_ENDPOINT}")
 print(f"API Key (first 10 chars): {MESHY_API_KEY[:10]}...")
 
 # Global variables for tracking progress
@@ -186,9 +195,53 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         finally:
             browser.close()
 
+def test_api_endpoints():
+    """Test which Meshy API endpoints are working"""
+    headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
+    
+    endpoints_to_test = [
+        (MESHY_IMAGE_TO_3D_ENDPOINT_V1, "v1 image-to-3d"),
+        (MESHY_IMAGE_TO_3D_ENDPOINT_V2, "v2 image-to-3d"),
+        (MESHY_TEXTURE_TO_3D_ENDPOINT_V1, "v1 texture-to-3d"),
+        (MESHY_TEXTURE_TO_3D_ENDPOINT_V2, "v2 texture-to-3d")
+    ]
+    
+    working_endpoints = []
+    
+    for endpoint, name in endpoints_to_test:
+        try:
+            print(f"Testing {name}: {endpoint}")
+            response = requests.get(endpoint, headers=headers)
+            print(f"  Status: {response.status_code}")
+            print(f"  Content-Type: {response.headers.get('content-type', 'unknown')}")
+            
+            if response.status_code == 200:
+                print(f"  ✅ {name} works!")
+                working_endpoints.append((endpoint, name))
+            elif response.status_code == 404:
+                print(f"  ❌ {name} - 404 Not Found")
+            elif response.status_code == 401:
+                print(f"  ❌ {name} - 401 Unauthorized (API key issue)")
+            else:
+                print(f"  ❌ {name} - {response.status_code}: {response.text[:100]}")
+                
+        except Exception as e:
+            print(f"  ❌ {name} - Error: {e}")
+    
+    return working_endpoints
+
 def create_textured_3d_model(image_path):
-    """Create textured 3D model using Meshy v2 texture-to-3d API"""
-    update_status("Creating 3D model...", 20, "Uploading image to Meshy API")
+    """Create textured 3D model using working Meshy API"""
+    update_status("Creating 3D model...", 20, "Testing Meshy API endpoints")
+    
+    # Test which endpoints work
+    working_endpoints = test_api_endpoints()
+    if not working_endpoints:
+        raise Exception("No working Meshy API endpoints found")
+    
+    # Use the first working endpoint
+    endpoint, name = working_endpoints[0]
+    update_status("Creating 3D model...", 25, f"Using {name}")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
@@ -203,7 +256,7 @@ def create_textured_3d_model(image_path):
             'art_style': 'realistic'
         }
         
-        response = requests.post(MESHY_TEXTURE_TO_3D_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
+        response = requests.post(endpoint, headers=headers, files=files, data=data, timeout=30)
     
     # Debug: Print response details
     print(f"Response status: {response.status_code}")
@@ -278,27 +331,52 @@ def poll_meshy_task(task_id, task_type="texture"):
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
-    # Use v2 texture-to-3d endpoint for polling
-    endpoint = f"{MESHY_BASE_URL}/v2/texture-to-3d/{task_id}"
+    # Try different polling endpoints
+    polling_endpoints = [
+        f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}",
+        f"{MESHY_BASE_URL}/v2/texture-to-3d/{task_id}",
+        f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}",
+        f"{MESHY_BASE_URL}/v2/image-to-3d/{task_id}"
+    ]
+    
+    # Use the first endpoint that works
+    endpoint = polling_endpoints[0]
     
     max_attempts = 60
     attempt = 0
+    current_endpoint_index = 0
     
     while attempt < max_attempts:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        status = result.get('status')
-        
-        update_status(f"Processing {task_type}...", 70 + (attempt * 0.5), f"Status: {status}")
-        
-        if status == 'SUCCEEDED':
-            update_status(f"{task_type.title()} completed!", 80, f"{task_type.title()} task completed successfully")
-            return result
-        elif status == 'FAILED':
-            raise Exception(f"{task_type} task failed: {result.get('task_error', {}).get('message', 'Unknown error')}")
+        try:
+            response = requests.get(endpoint, headers=headers)
+            if response.status_code == 404 and current_endpoint_index < len(polling_endpoints) - 1:
+                # Try next endpoint
+                current_endpoint_index += 1
+                endpoint = polling_endpoints[current_endpoint_index]
+                print(f"Trying alternative polling endpoint: {endpoint}")
+                continue
+            elif response.status_code != 200:
+                raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
+            
+            result = response.json()
+            status = result.get('status')
+            
+            update_status(f"Processing {task_type}...", 70 + (attempt * 0.5), f"Status: {status}")
+            
+            if status == 'SUCCEEDED':
+                update_status(f"{task_type.title()} completed!", 80, f"{task_type.title()} task completed successfully")
+                return result
+            elif status == 'FAILED':
+                raise Exception(f"{task_type} task failed: {result.get('task_error', {}).get('message', 'Unknown error')}")
+            
+        except Exception as e:
+            if current_endpoint_index < len(polling_endpoints) - 1:
+                current_endpoint_index += 1
+                endpoint = polling_endpoints[current_endpoint_index]
+                print(f"Polling error, trying next endpoint: {e}")
+                continue
+            else:
+                raise e
         
         time.sleep(5)
         attempt += 1
