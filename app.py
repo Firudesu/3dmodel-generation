@@ -47,6 +47,7 @@ def setup_directories():
     """Create necessary directories"""
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
+    print(f"Created directories: {app.config['UPLOAD_FOLDER']}, {app.config['OUTPUT_FOLDER']}")
     os.makedirs('static', exist_ok=True)
     os.makedirs('templates', exist_ok=True)
 
@@ -342,24 +343,34 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle file upload"""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file selected'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-    
-    if file:
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file selected'}), 400
         
-        # Start processing in background
-        thread = threading.Thread(target=process_image_async, args=(file_path,))
-        thread.daemon = True
-        thread.start()
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
         
-        return jsonify({'message': 'File uploaded successfully', 'filename': filename})
+        if file:
+            # Ensure upload directory exists
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            
+            print(f"Saving file to: {file_path}")
+            file.save(file_path)
+            print(f"File saved successfully: {os.path.exists(file_path)}")
+            
+            # Start processing in background
+            thread = threading.Thread(target=process_image_async, args=(file_path,))
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({'message': 'File uploaded successfully', 'filename': filename})
+    except Exception as e:
+        print(f"Upload error: {e}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 @app.route('/status')
 def get_status():
@@ -382,5 +393,7 @@ def download_file(filename):
         return "File not found", 404
 
 if __name__ == '__main__':
+    print("Starting Flask app...")
     setup_directories()
+    print("Directories created, starting server...")
     app.run(host='0.0.0.0', port=5000, debug=True)

@@ -49,6 +49,12 @@ def main():
             print("   playwright install chromium")
             return 1
     
+    # Create necessary directories
+    print("📁 Creating directories...")
+    os.makedirs('uploads', exist_ok=True)
+    os.makedirs('output', exist_ok=True)
+    print("✅ Directories created")
+    
     # Start the web app
     print("🌐 Starting web application...")
     print("📱 Open your browser and navigate to the URL shown below")
