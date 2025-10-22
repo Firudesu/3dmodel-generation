@@ -492,17 +492,17 @@ def process_image_async(image_path):
     """Process image in background thread"""
     global generated_files
     try:
-        # Step 1: Create 3D model from image
+        # Step 1: Create textured 3D model from image (single API call)
         update_status("Creating 3D model...", 20, "Sending image to Meshy API")
-        model_result = create_image_to_3d_task(image_path)
+        task_id = create_textured_3d_model(image_path)
         
-        # Step 2: Apply texture to the model
-        update_status("Applying texture...", 40, "Texturing the 3D model")
-        texture_result = create_retexture_task(model_result['task_id'])
+        # Step 2: Poll for completion
+        update_status("Processing...", 40, "Waiting for Meshy to complete")
+        result = poll_meshy_task(task_id, "texture")
         
         # Step 3: Download the textured model
         update_status("Downloading model...", 60, "Downloading textured 3D model")
-        model_path = download_meshy_files(texture_result)
+        model_path = download_meshy_files(result)
         
         # Step 4: Extract OBJ and texture files
         update_status("Extracting files...", 80, "Extracting OBJ and texture files")
