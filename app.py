@@ -76,8 +76,11 @@ def poll_meshy_task(task_id, task_type="texture"):
     update_status(f"Processing {task_type}...", 70, f"Waiting for {task_type} completion")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
-    # Use texture-to-3d endpoint for both model and texture tasks
-    endpoint = f"{MESHY_BASE_URL}/texture-to-3d/{task_id}"
+    # Use the correct endpoint based on task type
+    if task_type == "retexture":
+        endpoint = f"{MESHY_BASE_URL}/openapi/v1/retexture/{task_id}"
+    else:  # texture, model, or image-to-3d
+        endpoint = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}"
     
     max_attempts = 60
     attempt = 0
@@ -444,63 +447,6 @@ def create_retexture_task(model_task_id, image_path):
     update_status("Applying texture...", 60, f"Texture application started (ID: {task_id})")
     return task_id
 
-def poll_meshy_task(task_id, task_type="texture"):
-    """Poll Meshy API until task is complete"""
-    update_status(f"Processing {task_type}...", 70, f"Waiting for {task_type} completion")
-    
-    headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
-    
-    # Try different polling endpoints
-    polling_endpoints = [
-        f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}",
-        f"{MESHY_BASE_URL}/v2/texture-to-3d/{task_id}",
-        f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}",
-        f"{MESHY_BASE_URL}/v2/image-to-3d/{task_id}"
-    ]
-    
-    # Use the first endpoint that works
-    endpoint = polling_endpoints[0]
-    
-    max_attempts = 60
-    attempt = 0
-    current_endpoint_index = 0
-    
-    while attempt < max_attempts:
-        try:
-            response = requests.get(endpoint, headers=headers)
-            if response.status_code == 404 and current_endpoint_index < len(polling_endpoints) - 1:
-                # Try next endpoint
-                current_endpoint_index += 1
-                endpoint = polling_endpoints[current_endpoint_index]
-                print(f"Trying alternative polling endpoint: {endpoint}")
-                continue
-            elif response.status_code != 200:
-                raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
-            
-            result = response.json()
-            status = result.get('status')
-            
-            update_status(f"Processing {task_type}...", 70 + (attempt * 0.5), f"Status: {status}")
-            
-            if status == 'SUCCEEDED':
-                update_status(f"{task_type.title()} completed!", 80, f"{task_type.title()} task completed successfully")
-                return result
-            elif status == 'FAILED':
-                raise Exception(f"{task_type} task failed: {result.get('task_error', {}).get('message', 'Unknown error')}")
-            
-        except Exception as e:
-            if current_endpoint_index < len(polling_endpoints) - 1:
-                current_endpoint_index += 1
-                endpoint = polling_endpoints[current_endpoint_index]
-                print(f"Polling error, trying next endpoint: {e}")
-                continue
-            else:
-                raise e
-        
-        time.sleep(5)
-        attempt += 1
-    
-    raise Exception(f"{task_type} task timed out")
 
 def process_image_async(image_path):
     """Process image in background thread"""
