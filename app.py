@@ -106,17 +106,34 @@ def download_meshy_files(result):
     """Download model files from Meshy"""
     update_status("Downloading files...", 85, "Downloading model files from Meshy")
     
-    # Try different response formats
-    model_url = result.get('model_urls', {}).get('preview')
-    if not model_url:
-        model_url = result.get('model_urls', {}).get('glb')
+    # Try different response formats - prioritize OBJ files
+    model_url = None
+    file_type = None
+    
+    # Check for OBJ files first
+    if 'model_urls' in result:
+        model_urls = result['model_urls']
+        if 'obj' in model_urls:
+            model_url = model_urls['obj']
+            file_type = 'obj'
+        elif 'preview' in model_urls:
+            model_url = model_urls['preview']
+            file_type = 'preview'
+        elif 'glb' in model_urls:
+            model_url = model_urls['glb']
+            file_type = 'glb'
+    
+    # Fallback to direct model_url
     if not model_url:
         model_url = result.get('model_url')
+        file_type = 'unknown'
     
     if not model_url:
         raise Exception("No model URL found in Meshy response")
     
     print(f"Downloading from URL: {model_url}")
+    print(f"Expected file type: {file_type}")
+    
     response = requests.get(model_url)
     if response.status_code != 200:
         raise Exception(f"Failed to download model: {response.status_code}")
@@ -125,12 +142,12 @@ def download_meshy_files(result):
     content_type = response.headers.get('content-type', '')
     file_extension = '.zip'  # Default
     
-    if 'glb' in model_url or 'application/octet-stream' in content_type:
+    if 'obj' in model_url or 'text/plain' in content_type:
+        file_extension = '.obj'
+    elif 'glb' in model_url or 'application/octet-stream' in content_type:
         file_extension = '.glb'
     elif 'fbx' in model_url:
         file_extension = '.fbx'
-    elif 'obj' in model_url:
-        file_extension = '.obj'
     elif 'zip' in model_url or 'application/zip' in content_type:
         file_extension = '.zip'
     
@@ -144,14 +161,14 @@ def download_meshy_files(result):
     return model_path
 
 def extract_model_files(model_path):
-    """Process downloaded model files"""
+    """Process downloaded model files and extract OBJ"""
     print(f"Processing model file: {model_path}")
     
     model_file = Path(model_path)
     file_extension = model_file.suffix.lower()
     
     if file_extension == '.zip':
-        # Extract ZIP file
+        # Extract ZIP file and look for OBJ
         extract_dir = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_extracted')
         os.makedirs(extract_dir, exist_ok=True)
         
@@ -159,61 +176,35 @@ def extract_model_files(model_path):
             with zipfile.ZipFile(model_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_dir)
             
+            # Look for OBJ files in the extracted content
             obj_files = list(Path(extract_dir).glob("**/*.obj"))
             texture_files = list(Path(extract_dir).glob("**/*.jpg")) + list(Path(extract_dir).glob("**/*.png"))
             
             if obj_files:
-                print(f"Found OBJ file: {obj_files[0]}")
+                print(f"✅ Found OBJ file in ZIP: {obj_files[0]}")
                 return obj_files[0], texture_files
             else:
-                print("No OBJ file found in ZIP, creating placeholder")
-                # Create a simple OBJ file as fallback
-                obj_file = Path(extract_dir) / 'model.obj'
-                with open(obj_file, 'w') as f:
-                    f.write("# Extracted from ZIP\n")
-                    f.write("v 0 0 0\n")
-                    f.write("v 1 0 0\n")
-                    f.write("v 0 1 0\n")
-                    f.write("f 1 2 3\n")
-                return obj_file, texture_files
+                print("❌ No OBJ file found in ZIP")
+                # List what files we actually got
+                all_files = list(Path(extract_dir).glob("**/*"))
+                print(f"Files in ZIP: {[f.name for f in all_files if f.is_file()]}")
+                raise Exception("No OBJ file found in downloaded ZIP")
                 
         except zipfile.BadZipFile:
-            print("File is not a valid ZIP file, treating as single model file")
-            # Fall through to single file handling
+            print("❌ File is not a valid ZIP file")
+            raise Exception("Downloaded file is not a valid ZIP file")
     
-    # Handle single model files (GLB, FBX, OBJ, etc.)
-    if file_extension in ['.glb', '.fbx', '.obj', '.usdz']:
-        print(f"Single model file: {file_extension}")
-        
-        if file_extension == '.obj':
-            # Already an OBJ file, use it directly
-            texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
-            return model_file, texture_files
-        else:
-            # Create a simple OBJ file as placeholder for non-OBJ formats
-            obj_file = model_file.with_suffix('.obj')
-            with open(obj_file, 'w') as f:
-                f.write(f"# Converted from {file_extension.upper()}\n")
-                f.write("v 0 0 0\n")
-                f.write("v 1 0 0\n")
-                f.write("v 0 1 0\n")
-                f.write("f 1 2 3\n")
-            
-            texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
-            return obj_file, texture_files
+    elif file_extension == '.obj':
+        # Already an OBJ file - perfect!
+        print(f"✅ Direct OBJ file: {model_file}")
+        texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
+        return model_file, texture_files
     
-    # Fallback for unknown file types
-    print(f"Unknown file type: {file_extension}, creating placeholder OBJ")
-    obj_file = model_file.with_suffix('.obj')
-    with open(obj_file, 'w') as f:
-        f.write("# Placeholder OBJ file\n")
-        f.write("v 0 0 0\n")
-        f.write("v 1 0 0\n")
-        f.write("v 0 1 0\n")
-        f.write("f 1 2 3\n")
-    
-    texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
-    return obj_file, texture_files
+    else:
+        # Other formats (GLB, FBX, etc.) - we need to convert or get OBJ
+        print(f"❌ Got {file_extension} file, but we need OBJ for voxel conversion")
+        print("This format cannot be directly converted to VOX")
+        raise Exception(f"Meshy returned {file_extension} format, but OBJ is required for voxel conversion. Please try a different image or check Meshy API settings.")
 
 def convert_to_voxel(obj_file_path, texture_files=None):
     """Convert OBJ to VOX using Drububu voxelizer"""
@@ -501,15 +492,24 @@ def process_image_async(image_path):
     """Process image in background thread"""
     global generated_files
     try:
-        # Simplified approach: Use texture-to-3d API directly
-        task_id = create_textured_3d_model(image_path)
-        result = poll_meshy_task(task_id, "texture")
+        # Step 1: Create 3D model from image
+        update_status("Creating 3D model...", 20, "Sending image to Meshy API")
+        model_result = create_image_to_3d_task(image_path)
         
-        # Download and extract files
-        model_path = download_meshy_files(result)
+        # Step 2: Apply texture to the model
+        update_status("Applying texture...", 40, "Texturing the 3D model")
+        texture_result = create_retexture_task(model_result['task_id'])
+        
+        # Step 3: Download the textured model
+        update_status("Downloading model...", 60, "Downloading textured 3D model")
+        model_path = download_meshy_files(texture_result)
+        
+        # Step 4: Extract OBJ and texture files
+        update_status("Extracting files...", 80, "Extracting OBJ and texture files")
         obj_file, texture_files = extract_model_files(model_path)
         
-        # Convert to voxel
+        # Step 5: Convert to voxel
+        update_status("Converting to voxel...", 90, "Converting OBJ to VOX format")
         vox_file = convert_to_voxel(obj_file, texture_files)
         
         # Update generated files list
@@ -525,7 +525,9 @@ def process_image_async(image_path):
         update_status("Complete!", 100, "All files generated successfully")
         
     except Exception as e:
-        update_status("Error", 0, "", str(e))
+        error_msg = f"Processing failed: {str(e)}"
+        print(f"❌ Error: {error_msg}")
+        update_status("Error", 0, error_msg)
 
 @app.route('/')
 def index():
