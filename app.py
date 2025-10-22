@@ -25,12 +25,15 @@ app.config['OUTPUT_FOLDER'] = 'output'
 # Configuration
 MESHY_API_KEY = "msy_pQhyJ89ykjyGorHDhFJn7NJ2GzPNGMQ4qE77"
 MESHY_BASE_URL = "https://api.meshy.ai"
-MESHY_IMAGE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d"
-MESHY_RETEXTURE_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/retexture"
+
+# Try v2 API endpoints (more commonly used)
+MESHY_IMAGE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/v2/image-to-3d"
+MESHY_TEXTURE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/v2/texture-to-3d"
 
 # Debug: Print API endpoints
+print(f"Using v2 API endpoints:")
 print(f"Image to 3D endpoint: {MESHY_IMAGE_TO_3D_ENDPOINT}")
-print(f"Retexture endpoint: {MESHY_RETEXTURE_ENDPOINT}")
+print(f"Texture to 3D endpoint: {MESHY_TEXTURE_TO_3D_ENDPOINT}")
 print(f"API Key (first 10 chars): {MESHY_API_KEY[:10]}...")
 
 # Global variables for tracking progress
@@ -208,24 +211,24 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         finally:
             browser.close()
 
-def create_image_to_3d_task(image_path):
-    """Create 3D model from image using Meshy Image to 3D API"""
-    update_status("Creating 3D model...", 20, "Uploading image to Meshy Image to 3D API")
+def create_textured_3d_model(image_path):
+    """Create textured 3D model using Meshy v2 texture-to-3d API"""
+    update_status("Creating 3D model...", 20, "Uploading image to Meshy API")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
-    # Try using file upload instead of base64 data URI
+    # Use file upload format
     file_ext = os.path.splitext(image_path)[1].lower()
     content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
     
     with open(image_path, 'rb') as image_file:
         files = {'image': (os.path.basename(image_path), image_file, content_type)}
         data = {
-            'ai_model': 'meshy-5',
-            'enable_pbr': 'true'
+            'mode': 'preview',
+            'art_style': 'realistic'
         }
         
-        response = requests.post(MESHY_IMAGE_TO_3D_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
+        response = requests.post(MESHY_TEXTURE_TO_3D_ENDPOINT, headers=headers, files=files, data=data, timeout=30)
     
     # Debug: Print response details
     print(f"Response status: {response.status_code}")
@@ -334,24 +337,20 @@ def process_image_async(image_path):
     """Process image in background thread"""
     global generated_files
     try:
-        # Step 1: Create 3D model from image
-        model_task_id = create_image_to_3d_task(image_path)
-        model_result = poll_meshy_task(model_task_id, "image-to-3d")
+        # Simplified approach: Use texture-to-3d API directly
+        task_id = create_textured_3d_model(image_path)
+        result = poll_meshy_task(task_id, "texture")
         
-        # Step 2: Apply texture to the model
-        retexture_task_id = create_retexture_task(model_task_id, image_path)
-        retexture_result = poll_meshy_task(retexture_task_id, "retexture")
+        # Download and extract files
+        model_path = download_meshy_files(result)
+        obj_file, texture_files = extract_model_files(model_path)
         
-        # Step 3: Download and extract files
-        zip_path = download_meshy_files(retexture_result)
-        obj_file, texture_files = extract_model_files(zip_path)
-        
-        # Step 4: Convert to voxel
+        # Convert to voxel
         vox_file = convert_to_voxel(obj_file, texture_files)
         
         # Update generated files list
         generated_files = [
-            {'name': '3D Model (ZIP)', 'path': zip_path, 'type': 'zip'},
+            {'name': '3D Model', 'path': model_path, 'type': 'model'},
             {'name': 'OBJ File', 'path': str(obj_file), 'type': 'obj'},
             {'name': 'VOX File', 'path': vox_file, 'type': 'vox'}
         ]
