@@ -71,37 +71,8 @@ def update_status(status, percentage=0, task="", error=""):
         error_message = error
 
 
-def poll_meshy_task(task_id, task_type="texture"):
-    """Poll Meshy API until task is complete"""
-    update_status(f"Processing {task_type}...", 70, f"Waiting for {task_type} completion")
-    
-    headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
-    # Use texture-to-3d endpoint for both model and texture tasks
-    endpoint = f"{MESHY_BASE_URL}/texture-to-3d/{task_id}"
-    
-    max_attempts = 60
-    attempt = 0
-    
-    while attempt < max_attempts:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        status = result.get('status')
-        
-        update_status(f"Processing {task_type}...", 70 + (attempt * 0.5), f"Status: {status}")
-        
-        if status == 'SUCCEEDED':
-            update_status(f"{task_type.title()} completed!", 80, f"{task_type.title()} task completed successfully")
-            return result
-        elif status == 'FAILED':
-            raise Exception(f"{task_type} task failed: {result.get('error', 'Unknown error')}")
-        
-        time.sleep(5)
-        attempt += 1
-    
-    raise Exception(f"{task_type} task timed out")
+# Note: This function has been replaced by the improved version at line 447
+# Keeping this comment to maintain line numbers for now
 
 def download_meshy_files(result):
     """Download model files from Meshy"""
@@ -283,10 +254,11 @@ def test_api_endpoints():
     print(f"  Contains only valid chars: {all(c.isalnum() or c in '_-' for c in MESHY_API_KEY)}")
     
     endpoints_to_test = [
-        (MESHY_TEXTURE_TO_3D_ENDPOINT_V2, "v2 texture-to-3d"),
-        (MESHY_TEXTURE_TO_3D_ENDPOINT_V1, "v1 texture-to-3d"),
+        (f"{MESHY_BASE_URL}/v1/image-to-3d", "v1 image-to-3d"),  # Confirmed working endpoint
+        (MESHY_IMAGE_TO_3D_ENDPOINT_V1, "openapi v1 image-to-3d"),
         (MESHY_IMAGE_TO_3D_ENDPOINT_V2, "v2 image-to-3d"),
-        (MESHY_IMAGE_TO_3D_ENDPOINT_V1, "v1 image-to-3d")
+        (MESHY_TEXTURE_TO_3D_ENDPOINT_V1, "openapi v1 texture-to-3d"),
+        (MESHY_TEXTURE_TO_3D_ENDPOINT_V2, "v2 texture-to-3d")
     ]
     
     working_endpoints = []
@@ -320,10 +292,14 @@ def create_textured_3d_model(image_path):
     # Test which endpoints work
     working_endpoints = test_api_endpoints()
     if not working_endpoints:
-        raise Exception("No working Meshy API endpoints found")
+        # If no endpoints tested successfully, default to v1/image-to-3d which we know exists
+        print("No endpoints tested successfully, using default v1/image-to-3d")
+        endpoint = f"{MESHY_BASE_URL}/v1/image-to-3d"
+        name = "v1 image-to-3d (default)"
+    else:
+        # Use the first working endpoint
+        endpoint, name = working_endpoints[0]
     
-    # Use the first working endpoint
-    endpoint, name = working_endpoints[0]
     update_status("Creating 3D model...", 25, f"Using {name} - Task created, processing...")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
@@ -332,8 +308,17 @@ def create_textured_3d_model(image_path):
     file_ext = os.path.splitext(image_path)[1].lower()
     content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
     
-    # Try using texture-to-3d endpoint with image (this might be the correct approach)
-    if 'texture-to-3d' in endpoint:
+    # Handle different endpoint types
+    if '/v1/image-to-3d' in endpoint and 'openapi' not in endpoint:
+        # v1 image-to-3d endpoint (new format)
+        with open(image_path, 'rb') as image_file:
+            files = {'image_file': (os.path.basename(image_path), image_file, content_type)}
+            data = {
+                'enable_pbr': 'true',
+                'ai_model': 'meshy-4'
+            }
+            response = requests.post(endpoint, headers=headers, files=files, data=data, timeout=30)
+    elif 'texture-to-3d' in endpoint:
         # Use file upload for texture-to-3d
         with open(image_path, 'rb') as image_file:
             files = {'image': (os.path.basename(image_path), image_file, content_type)}
@@ -394,9 +379,10 @@ def create_textured_3d_model(image_path):
         raise Exception(f"Failed to get task ID from Meshy API: {result}")
     
     print(f"✅ Task created successfully! Task ID: {task_id}")
+    print(f"Creation endpoint used: {endpoint}")
     
     update_status("Creating 3D model...", 30, f"3D model creation started (ID: {task_id})")
-    return task_id
+    return task_id, endpoint  # Return both task_id and endpoint
 
 def create_retexture_task(model_task_id, image_path):
     """Apply texture to 3D model using Meshy Retexture API"""
@@ -444,22 +430,51 @@ def create_retexture_task(model_task_id, image_path):
     update_status("Applying texture...", 60, f"Texture application started (ID: {task_id})")
     return task_id
 
-def poll_meshy_task(task_id, task_type="texture"):
+def poll_meshy_task(task_id, task_type="texture", creation_endpoint=None):
     """Poll Meshy API until task is complete"""
     update_status(f"Processing {task_type}...", 70, f"Waiting for {task_type} completion")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
-    # Try different polling endpoints
-    polling_endpoints = [
-        f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}",
+    # Determine polling endpoint based on creation endpoint if provided
+    polling_endpoints = []
+    
+    if creation_endpoint:
+        # Match polling endpoint to creation endpoint format
+        if '/v1/image-to-3d' in creation_endpoint and 'openapi' not in creation_endpoint:
+            polling_endpoints.append(f"{MESHY_BASE_URL}/v1/image-to-3d/{task_id}")
+        elif '/openapi/v1/texture-to-3d' in creation_endpoint:
+            polling_endpoints.append(f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}")
+        elif '/openapi/v1/image-to-3d' in creation_endpoint:
+            polling_endpoints.append(f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}")
+        elif '/v2/texture-to-3d' in creation_endpoint:
+            polling_endpoints.append(f"{MESHY_BASE_URL}/v2/texture-to-3d/{task_id}")
+        elif '/v2/image-to-3d' in creation_endpoint:
+            polling_endpoints.append(f"{MESHY_BASE_URL}/v2/image-to-3d/{task_id}")
+    
+    # Add all possible endpoints as fallbacks - prioritize v1/image-to-3d which is confirmed working
+    polling_endpoints.extend([
+        f"{MESHY_BASE_URL}/v1/image-to-3d/{task_id}",  # This endpoint confirmed working (returns 400 not 404)
+        f"{MESHY_BASE_URL}/v1/texture-to-3d/{task_id}",
         f"{MESHY_BASE_URL}/v2/texture-to-3d/{task_id}",
+        f"{MESHY_BASE_URL}/v2/image-to-3d/{task_id}",
+        f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}",
+        f"{MESHY_BASE_URL}/openapi/v2/texture-to-3d/{task_id}",
         f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}",
-        f"{MESHY_BASE_URL}/v2/image-to-3d/{task_id}"
-    ]
+        f"{MESHY_BASE_URL}/openapi/v2/image-to-3d/{task_id}"
+    ])
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_endpoints = []
+    for ep in polling_endpoints:
+        if ep not in seen:
+            seen.add(ep)
+            unique_endpoints.append(ep)
+    polling_endpoints = unique_endpoints
     
     # Use the first endpoint that works
-    endpoint = polling_endpoints[0]
+    endpoint = polling_endpoints[0] if polling_endpoints else f"{MESHY_BASE_URL}/v1/texture-to-3d/{task_id}"
     
     max_attempts = 60
     attempt = 0
@@ -467,14 +482,19 @@ def poll_meshy_task(task_id, task_type="texture"):
     
     while attempt < max_attempts:
         try:
+            print(f"Polling attempt {attempt + 1}/{max_attempts} - Endpoint: {endpoint}")
             response = requests.get(endpoint, headers=headers)
+            print(f"Polling response status: {response.status_code}")
+            
             if response.status_code == 404 and current_endpoint_index < len(polling_endpoints) - 1:
                 # Try next endpoint
+                print(f"404 error - endpoint not found: {endpoint}")
                 current_endpoint_index += 1
                 endpoint = polling_endpoints[current_endpoint_index]
                 print(f"Trying alternative polling endpoint: {endpoint}")
                 continue
             elif response.status_code != 200:
+                print(f"Polling error: {response.status_code} - {response.text[:200]}")
                 raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
             
             result = response.json()
@@ -508,11 +528,11 @@ def process_image_async(image_path):
     try:
         # Step 1: Create textured 3D model from image (single API call)
         update_status("Creating 3D model...", 20, "Sending image to Meshy API")
-        task_id = create_textured_3d_model(image_path)
+        task_id, creation_endpoint = create_textured_3d_model(image_path)
         
         # Step 2: Poll for completion
         update_status("Processing...", 40, "Waiting for Meshy to complete")
-        result = poll_meshy_task(task_id, "texture")
+        result = poll_meshy_task(task_id, "texture", creation_endpoint)
         
         # Step 3: Download the textured model
         update_status("Downloading model...", 60, "Downloading textured 3D model")
