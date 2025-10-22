@@ -21,13 +21,28 @@ def install_dependencies():
     """Install required dependencies"""
     print("📦 Installing dependencies...")
     try:
+        # Install Python packages
         subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
+        print("✅ Python packages installed")
+        
+        # Install Playwright browsers
+        print("🌐 Installing Playwright browsers...")
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-        print("✅ Dependencies installed successfully!")
+        subprocess.run([sys.executable, "-m", "playwright", "install-deps"], check=True)
+        print("✅ Playwright browsers installed")
+        
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to install dependencies: {e}")
-        return False
+        print("🔄 Trying alternative installation...")
+        try:
+            # Try installing without deps first
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            print("✅ Playwright browsers installed (alternative method)")
+            return True
+        except:
+            print("❌ Alternative installation also failed")
+            return False
 
 def main():
     """Main startup function"""
@@ -48,6 +63,24 @@ def main():
             print("   pip install -r requirements.txt")
             print("   playwright install chromium")
             return 1
+    
+    # Verify Playwright browsers are installed
+    print("🔍 Verifying Playwright browsers...")
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            browser.close()
+        print("✅ Playwright browsers verified")
+    except Exception as e:
+        print(f"⚠️  Playwright browser check failed: {e}")
+        print("🔄 Attempting to install browsers...")
+        try:
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            print("✅ Browsers installed successfully")
+        except Exception as install_error:
+            print(f"❌ Failed to install browsers: {install_error}")
+            print("⚠️  The app may not work properly for voxel conversion")
     
     # Create necessary directories
     print("📁 Creating directories...")

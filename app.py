@@ -5,6 +5,7 @@ Designed for Replit and other web-based IDEs
 """
 
 import os
+import sys
 import time
 import requests
 import json
@@ -210,10 +211,23 @@ def convert_to_voxel(obj_file_path, texture_files=None):
     """Convert OBJ to VOX using Drububu voxelizer"""
     update_status("Converting to voxel...", 95, "Uploading to Drububu voxelizer")
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(accept_downloads=True)
-        page = context.new_page()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(accept_downloads=True)
+            page = context.new_page()
+    except Exception as e:
+        if "Executable doesn't exist" in str(e):
+            print("🔧 Installing Playwright browsers...")
+            import subprocess
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            print("✅ Browsers installed, retrying...")
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(accept_downloads=True)
+                page = context.new_page()
+        else:
+            raise e
         
         try:
             page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj")
