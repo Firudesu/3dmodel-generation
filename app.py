@@ -506,6 +506,29 @@ def get_status():
 @app.route('/download/<filename>')
 def download_file(filename):
     """Download generated files"""
+    try:
+        # Check if file exists in output folder
+        file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
+        if os.path.exists(file_path):
+            return send_file(file_path, as_attachment=True)
+        
+        # Check if file exists in uploads folder
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(upload_path):
+            return send_file(upload_path, as_attachment=True)
+        
+        # Check in extracted folder
+        extracted_path = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_extracted', filename)
+        if os.path.exists(extracted_path):
+            return send_file(extracted_path, as_attachment=True)
+        
+        return "File not found", 404
+    except Exception as e:
+        return f"Download error: {str(e)}", 500
+
+@app.route('/download/<filename>')
+def download_file(filename):
+    """Download generated files"""
     file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
     if os.path.exists(file_path):
         return send_file(file_path, as_attachment=True)
