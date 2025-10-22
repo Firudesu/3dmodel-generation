@@ -247,7 +247,7 @@ def create_textured_3d_model(image_path):
     
     # Use the first working endpoint
     endpoint, name = working_endpoints[0]
-    update_status("Creating 3D model...", 25, f"Using {name}")
+    update_status("Creating 3D model...", 25, f"Using {name} - Task created, processing...")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
@@ -302,7 +302,8 @@ def create_textured_3d_model(image_path):
     print(f"Response headers: {dict(response.headers)}")
     print(f"Response content (first 500 chars): {response.text[:500]}")
     
-    if response.status_code != 200:
+    # 202 means "Accepted" - task created successfully
+    if response.status_code not in [200, 202]:
         raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
     
     # Check if response is JSON
@@ -314,6 +315,8 @@ def create_textured_3d_model(image_path):
     task_id = result.get('result')
     if not task_id:
         raise Exception(f"Failed to get task ID from Meshy API: {result}")
+    
+    print(f"✅ Task created successfully! Task ID: {task_id}")
     
     update_status("Creating 3D model...", 30, f"3D model creation started (ID: {task_id})")
     return task_id
