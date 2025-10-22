@@ -34,7 +34,7 @@ TEST_MODE = False  # Set to True to skip Meshy API and test voxel conversion onl
 # API endpoints
 MESHY_BASE_URL = "https://api.meshy.ai"
 MESHY_IMAGE_TO_3D_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d"
-MESHY_RETEXTURE_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/retexture"
+MESHY_RETEXTURE_ENDPOINT = f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d"
 
 # File management
 DOWNLOAD_FOLDER = None  # Will be set via folder selection dialog
@@ -166,44 +166,6 @@ def create_retexture_task(model_task_id):
     print(f"✓ Texture application started. Task ID: {task_id}")
     return task_id
 
-def poll_meshy_task(task_id, task_type="texture"):
-    """Poll Meshy API until task is complete"""
-    print(f"🔄 Waiting for {task_type} task completion...")
-    
-    headers = {
-        "Authorization": f"Bearer {MESHY_API_KEY}",
-    }
-    
-    # Choose the correct endpoint based on task type
-    if task_type == "model":
-        endpoint = f"{MESHY_BASE_URL}/image-to-3d/{task_id}"
-    else:  # texture
-        endpoint = f"{MESHY_BASE_URL}/texture-to-3d/{task_id}"
-    
-    max_attempts = 60  # 5 minutes max
-    attempt = 0
-    
-    while attempt < max_attempts:
-        response = requests.get(endpoint, headers=headers)
-        
-        if response.status_code != 200:
-            raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        status = result.get('status')
-        
-        print(f"  Status: {status} (attempt {attempt + 1}/{max_attempts})")
-        
-        if status == 'SUCCEEDED':
-            print(f"✓ {task_type} task completed!")
-            return result
-        elif status == 'FAILED':
-            raise Exception(f"{task_type} task failed: {result.get('error', 'Unknown error')}")
-        
-        time.sleep(5)  # Wait 5 seconds before next poll
-        attempt += 1
-    
-    raise Exception(f"{task_type} task timed out")
 
 def poll_meshy_task(task_id, task_type="image-to-3d"):
     """Poll Meshy API until task is complete"""
@@ -215,7 +177,7 @@ def poll_meshy_task(task_id, task_type="image-to-3d"):
     if task_type == "image-to-3d":
         endpoint = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}"
     else:  # retexture
-        endpoint = f"{MESHY_BASE_URL}/openapi/v1/retexture/{task_id}"
+        endpoint = f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}"
     
     max_attempts = 60  # 5 minutes max
     attempt = 0

@@ -36,6 +36,7 @@ MESHY_TEXTURE_TO_3D_ENDPOINT_V2 = f"{MESHY_BASE_URL}/v2/texture-to-3d"
 # Start with v1 openapi endpoints
 MESHY_IMAGE_TO_3D_ENDPOINT = MESHY_IMAGE_TO_3D_ENDPOINT_V1
 MESHY_TEXTURE_TO_3D_ENDPOINT = MESHY_TEXTURE_TO_3D_ENDPOINT_V1
+MESHY_RETEXTURE_ENDPOINT = MESHY_TEXTURE_TO_3D_ENDPOINT_V1  # Use texture-to-3d endpoint for retexture
 
 # Debug: Print API endpoints
 print(f"Testing API endpoints:")
