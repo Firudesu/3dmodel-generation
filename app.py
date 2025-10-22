@@ -96,9 +96,11 @@ def download_meshy_files(result):
     """Download model files from Meshy"""
     update_status("Downloading files...", 85, "Downloading model files from Meshy")
     
-    # Try to get GLB file first, then FBX, then USDZ
-    model_urls = result.get('model_urls', {})
-    model_url = model_urls.get('glb') or model_urls.get('fbx') or model_urls.get('usdz')
+    # v2 API response format
+    model_url = result.get('model_urls', {}).get('preview')
+    if not model_url:
+        # Try alternative format
+        model_url = result.get('model_url')
     
     if not model_url:
         raise Exception("No model URL found in Meshy response")
@@ -107,57 +109,29 @@ def download_meshy_files(result):
     if response.status_code != 200:
         raise Exception(f"Failed to download model: {response.status_code}")
     
-    # Determine file extension based on URL
-    if 'glb' in model_url:
-        file_ext = '.glb'
-    elif 'fbx' in model_url:
-        file_ext = '.fbx'
-    else:
-        file_ext = '.usdz'
-    
-    model_path = os.path.join(app.config['OUTPUT_FOLDER'], f'meshy_model{file_ext}')
+    # Save as ZIP file (v2 API typically returns ZIP)
+    model_path = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_model.zip')
     with open(model_path, 'wb') as f:
         f.write(response.content)
     
-    # Also download texture files if available
-    texture_urls = result.get('texture_urls', [])
-    if texture_urls:
-        for i, texture_set in enumerate(texture_urls):
-            for texture_type, texture_url in texture_set.items():
-                if texture_url:
-                    texture_response = requests.get(texture_url)
-                    if texture_response.status_code == 200:
-                        texture_path = os.path.join(app.config['OUTPUT_FOLDER'], f'texture_{i}_{texture_type}.png')
-                        with open(texture_path, 'wb') as f:
-                            f.write(texture_response.content)
-    
-    update_status("Files downloaded...", 90, "Model and texture files downloaded")
+    update_status("Files downloaded...", 90, "Model files downloaded")
     return model_path
 
-def extract_model_files(model_path):
-    """Process downloaded model files"""
-    # The model is already downloaded as a single file (GLB/FBX/USDZ)
-    # We need to convert it to OBJ format for the voxelizer
-    # For now, we'll use the model file directly and look for texture files
+def extract_model_files(zip_path):
+    """Extract model files from zip"""
+    extract_dir = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_extracted')
+    os.makedirs(extract_dir, exist_ok=True)
     
-    model_file = Path(model_path)
-    texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_dir)
     
-    # If we have a GLB file, we might need to convert it to OBJ
-    # For now, let's create a placeholder OBJ file
-    if model_file.suffix == '.glb':
-        # Create a simple OBJ file as placeholder
-        obj_file = model_file.with_suffix('.obj')
-        with open(obj_file, 'w') as f:
-            f.write("# Converted from GLB\n")
-            f.write("v 0 0 0\n")
-            f.write("v 1 0 0\n") 
-            f.write("v 0 1 0\n")
-            f.write("f 1 2 3\n")
-    else:
-        obj_file = model_file
+    obj_files = list(Path(extract_dir).glob("**/*.obj"))
+    texture_files = list(Path(extract_dir).glob("**/*.jpg")) + list(Path(extract_dir).glob("**/*.png"))
     
-    return obj_file, texture_files
+    if not obj_files:
+        raise Exception("No .obj file found in extracted model")
+    
+    return obj_files[0], texture_files
 
 def convert_to_voxel(obj_file_path, texture_files=None):
     """Convert OBJ to VOX using Drububu voxelizer"""
@@ -297,17 +271,14 @@ def create_retexture_task(model_task_id, image_path):
     update_status("Applying texture...", 60, f"Texture application started (ID: {task_id})")
     return task_id
 
-def poll_meshy_task(task_id, task_type="image-to-3d"):
+def poll_meshy_task(task_id, task_type="texture"):
     """Poll Meshy API until task is complete"""
     update_status(f"Processing {task_type}...", 70, f"Waiting for {task_type} completion")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
-    # Choose the correct endpoint based on task type
-    if task_type == "image-to-3d":
-        endpoint = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}"
-    else:  # retexture
-        endpoint = f"{MESHY_BASE_URL}/openapi/v1/retexture/{task_id}"
+    # Use v2 texture-to-3d endpoint for polling
+    endpoint = f"{MESHY_BASE_URL}/v2/texture-to-3d/{task_id}"
     
     max_attempts = 60
     attempt = 0
