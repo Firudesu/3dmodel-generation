@@ -600,15 +600,6 @@ def download_file(filename):
     except Exception as e:
         return f"Download error: {str(e)}", 500
 
-@app.route('/download/<filename>')
-def download_file(filename):
-    """Download generated files"""
-    file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
-    if os.path.exists(file_path):
-        return send_file(file_path, as_attachment=True)
-    else:
-        return "File not found", 404
-
 if __name__ == '__main__':
     print("Starting Flask app...")
     setup_directories()
