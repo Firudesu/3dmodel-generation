@@ -199,11 +199,17 @@ def test_api_endpoints():
     """Test which Meshy API endpoints are working"""
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
+    # First test API key format
+    print(f"API Key format check:")
+    print(f"  Length: {len(MESHY_API_KEY)}")
+    print(f"  Starts with 'msy_': {MESHY_API_KEY.startswith('msy_')}")
+    print(f"  Contains only valid chars: {all(c.isalnum() or c in '_-' for c in MESHY_API_KEY)}")
+    
     endpoints_to_test = [
-        (MESHY_IMAGE_TO_3D_ENDPOINT_V1, "v1 image-to-3d"),
-        (MESHY_IMAGE_TO_3D_ENDPOINT_V2, "v2 image-to-3d"),
+        (MESHY_TEXTURE_TO_3D_ENDPOINT_V2, "v2 texture-to-3d"),
         (MESHY_TEXTURE_TO_3D_ENDPOINT_V1, "v1 texture-to-3d"),
-        (MESHY_TEXTURE_TO_3D_ENDPOINT_V2, "v2 texture-to-3d")
+        (MESHY_IMAGE_TO_3D_ENDPOINT_V2, "v2 image-to-3d"),
+        (MESHY_IMAGE_TO_3D_ENDPOINT_V1, "v1 image-to-3d")
     ]
     
     working_endpoints = []
@@ -249,22 +255,55 @@ def create_textured_3d_model(image_path):
     file_ext = os.path.splitext(image_path)[1].lower()
     content_type = 'image/jpeg' if file_ext in ['.jpg', '.jpeg'] else 'image/png'
     
-    with open(image_path, 'rb') as image_file:
-        files = {'image': (os.path.basename(image_path), image_file, content_type)}
+    # Try using texture-to-3d endpoint with image (this might be the correct approach)
+    if 'texture-to-3d' in endpoint:
+        # Use file upload for texture-to-3d
+        with open(image_path, 'rb') as image_file:
+            files = {'image': (os.path.basename(image_path), image_file, content_type)}
+            data = {
+                'mode': 'preview',
+                'art_style': 'realistic'
+            }
+            
+            response = requests.post(endpoint, headers=headers, files=files, data=data, timeout=30)
+    elif 'openapi/v1' in endpoint:
+        # v1 API expects JSON with base64 image
+        import base64
+        with open(image_path, 'rb') as image_file:
+            image_data = image_file.read()
+            base64_data = base64.b64encode(image_data).decode('utf-8')
+            image_data_uri = f"data:{content_type};base64,{base64_data}"
+        
         data = {
-            'mode': 'preview',
-            'art_style': 'realistic'
+            "image_url": image_data_uri,
+            "ai_model": "meshy-5",
+            "enable_pbr": True
         }
         
-        response = requests.post(endpoint, headers=headers, files=files, data=data, timeout=30)
+        response = requests.post(endpoint, headers=headers, json=data, timeout=30)
+    else:
+        # v2 API expects form data with file upload
+        with open(image_path, 'rb') as image_file:
+            files = {'image': (os.path.basename(image_path), image_file, content_type)}
+            data = {
+                'mode': 'preview',
+                'art_style': 'realistic'
+            }
+            
+            response = requests.post(endpoint, headers=headers, files=files, data=data, timeout=30)
     
-    # Debug: Print response details
+    # Debug: Print request and response details
+    print(f"Request endpoint: {endpoint}")
+    print(f"Request headers: {dict(headers)}")
+    print(f"Request data type: {type(data)}")
+    if isinstance(data, dict) and 'image_url' in data:
+        print(f"Image data URI length: {len(data['image_url'])}")
     print(f"Response status: {response.status_code}")
     print(f"Response headers: {dict(response.headers)}")
     print(f"Response content (first 500 chars): {response.text[:500]}")
     
     if response.status_code != 200:
-        raise Exception(f"Meshy Image to 3D API error: {response.status_code} - {response.text}")
+        raise Exception(f"Meshy API error: {response.status_code} - {response.text}")
     
     # Check if response is JSON
     try:
