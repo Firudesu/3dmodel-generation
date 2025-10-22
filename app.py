@@ -447,8 +447,10 @@ def poll_meshy_task(task_id, task_type="texture", creation_endpoint=None):
     
     if creation_endpoint:
         # Match polling endpoint to creation endpoint format
+        # NOTE: v1/image-to-3d creation requires openapi/v1/image-to-3d for polling!
         if '/v1/image-to-3d' in creation_endpoint and 'openapi' not in creation_endpoint:
-            polling_endpoints.append(f"{MESHY_BASE_URL}/v1/image-to-3d/{task_id}")
+            # Tasks created with v1/image-to-3d must be polled with openapi/v1/image-to-3d
+            polling_endpoints.append(f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}")
         elif '/openapi/v1/texture-to-3d' in creation_endpoint:
             polling_endpoints.append(f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}")
         elif '/openapi/v1/image-to-3d' in creation_endpoint:
@@ -458,15 +460,15 @@ def poll_meshy_task(task_id, task_type="texture", creation_endpoint=None):
         elif '/v2/image-to-3d' in creation_endpoint:
             polling_endpoints.append(f"{MESHY_BASE_URL}/v2/image-to-3d/{task_id}")
     
-    # Add all possible endpoints as fallbacks - prioritize v1/image-to-3d which is confirmed working
+    # Add all possible endpoints as fallbacks - prioritize openapi/v1/image-to-3d which is confirmed working
     polling_endpoints.extend([
-        f"{MESHY_BASE_URL}/v1/image-to-3d/{task_id}",  # This endpoint confirmed working (returns 400 not 404)
+        f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}",  # This endpoint confirmed working for v1 tasks
+        f"{MESHY_BASE_URL}/v1/image-to-3d/{task_id}",  
         f"{MESHY_BASE_URL}/v1/texture-to-3d/{task_id}",
         f"{MESHY_BASE_URL}/v2/texture-to-3d/{task_id}",
         f"{MESHY_BASE_URL}/v2/image-to-3d/{task_id}",
         f"{MESHY_BASE_URL}/openapi/v1/texture-to-3d/{task_id}",
         f"{MESHY_BASE_URL}/openapi/v2/texture-to-3d/{task_id}",
-        f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}",
         f"{MESHY_BASE_URL}/openapi/v2/image-to-3d/{task_id}"
     ])
     
