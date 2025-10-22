@@ -175,10 +175,12 @@ def poll_meshy_task(task_id, task_type="texture"):
     }
     
     # Choose the correct endpoint based on task type
-    if task_type == "model":
-        endpoint = f"{MESHY_BASE_URL}/image-to-3d/{task_id}"
-    else:  # texture
-        endpoint = f"{MESHY_BASE_URL}/texture-to-3d/{task_id}"
+    if task_type == "model" or task_type == "image-to-3d":
+        endpoint = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}"
+    elif task_type == "retexture":
+        endpoint = f"{MESHY_BASE_URL}/openapi/v1/retexture/{task_id}"
+    else:  # texture or other
+        endpoint = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}"
     
     max_attempts = 60  # 5 minutes max
     attempt = 0
@@ -205,42 +207,6 @@ def poll_meshy_task(task_id, task_type="texture"):
     
     raise Exception(f"{task_type} task timed out")
 
-def poll_meshy_task(task_id, task_type="image-to-3d"):
-    """Poll Meshy API until task is complete"""
-    print(f"🔄 Waiting for {task_type} task completion...")
-    
-    headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
-    
-    # Choose the correct endpoint based on task type
-    if task_type == "image-to-3d":
-        endpoint = f"{MESHY_BASE_URL}/openapi/v1/image-to-3d/{task_id}"
-    else:  # retexture
-        endpoint = f"{MESHY_BASE_URL}/openapi/v1/retexture/{task_id}"
-    
-    max_attempts = 60  # 5 minutes max
-    attempt = 0
-    
-    while attempt < max_attempts:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"Meshy API polling error: {response.status_code} - {response.text}")
-        
-        result = response.json()
-        status = result.get('status')
-        
-        print(f"  Status: {status} (attempt {attempt + 1}/{max_attempts})")
-        
-        if status == 'SUCCEEDED':
-            print(f"✓ {task_type} task completed!")
-            return result
-        elif status == 'FAILED':
-            error_msg = result.get('task_error', {}).get('message', 'Unknown error')
-            raise Exception(f"{task_type} task failed: {error_msg}")
-        
-        time.sleep(5)  # Wait 5 seconds before next poll
-        attempt += 1
-    
-    raise Exception(f"{task_type} task timed out")
 
 def download_meshy_files(result):
     """Download model files from Meshy"""
