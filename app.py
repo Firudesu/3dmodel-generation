@@ -310,14 +310,20 @@ def create_textured_3d_model(image_path):
     
     # Handle different endpoint types
     if '/v1/image-to-3d' in endpoint and 'openapi' not in endpoint:
-        # v1 image-to-3d endpoint (new format)
+        # v1 image-to-3d endpoint - send as JSON with base64 image
+        import base64
         with open(image_path, 'rb') as image_file:
-            files = {'image_file': (os.path.basename(image_path), image_file, content_type)}
-            data = {
-                'enable_pbr': 'true',
-                'ai_model': 'meshy-4'
-            }
-            response = requests.post(endpoint, headers=headers, files=files, data=data, timeout=30)
+            image_data = image_file.read()
+            base64_data = base64.b64encode(image_data).decode('utf-8')
+            image_data_uri = f"data:{content_type};base64,{base64_data}"
+        
+        data = {
+            "image_url": image_data_uri,
+            "ai_model": "meshy-4",
+            "enable_pbr": True
+        }
+        
+        response = requests.post(endpoint, headers=headers, json=data, timeout=30)
     elif 'texture-to-3d' in endpoint:
         # Use file upload for texture-to-3d
         with open(image_path, 'rb') as image_file:
