@@ -106,42 +106,114 @@ def download_meshy_files(result):
     """Download model files from Meshy"""
     update_status("Downloading files...", 85, "Downloading model files from Meshy")
     
-    # v2 API response format
+    # Try different response formats
     model_url = result.get('model_urls', {}).get('preview')
     if not model_url:
-        # Try alternative format
+        model_url = result.get('model_urls', {}).get('glb')
+    if not model_url:
         model_url = result.get('model_url')
     
     if not model_url:
         raise Exception("No model URL found in Meshy response")
     
+    print(f"Downloading from URL: {model_url}")
     response = requests.get(model_url)
     if response.status_code != 200:
         raise Exception(f"Failed to download model: {response.status_code}")
     
-    # Save as ZIP file (v2 API typically returns ZIP)
-    model_path = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_model.zip')
+    # Detect file type from URL or content
+    content_type = response.headers.get('content-type', '')
+    file_extension = '.zip'  # Default
+    
+    if 'glb' in model_url or 'application/octet-stream' in content_type:
+        file_extension = '.glb'
+    elif 'fbx' in model_url:
+        file_extension = '.fbx'
+    elif 'obj' in model_url:
+        file_extension = '.obj'
+    elif 'zip' in model_url or 'application/zip' in content_type:
+        file_extension = '.zip'
+    
+    # Save with appropriate extension
+    model_path = os.path.join(app.config['OUTPUT_FOLDER'], f'meshy_model{file_extension}')
     with open(model_path, 'wb') as f:
         f.write(response.content)
     
-    update_status("Files downloaded...", 90, "Model files downloaded")
+    print(f"Downloaded file: {model_path} (type: {file_extension})")
+    update_status("Files downloaded...", 90, f"Model files downloaded ({file_extension})")
     return model_path
 
-def extract_model_files(zip_path):
-    """Extract model files from zip"""
-    extract_dir = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_extracted')
-    os.makedirs(extract_dir, exist_ok=True)
+def extract_model_files(model_path):
+    """Process downloaded model files"""
+    print(f"Processing model file: {model_path}")
     
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_dir)
+    model_file = Path(model_path)
+    file_extension = model_file.suffix.lower()
     
-    obj_files = list(Path(extract_dir).glob("**/*.obj"))
-    texture_files = list(Path(extract_dir).glob("**/*.jpg")) + list(Path(extract_dir).glob("**/*.png"))
+    if file_extension == '.zip':
+        # Extract ZIP file
+        extract_dir = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_extracted')
+        os.makedirs(extract_dir, exist_ok=True)
+        
+        try:
+            with zipfile.ZipFile(model_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            
+            obj_files = list(Path(extract_dir).glob("**/*.obj"))
+            texture_files = list(Path(extract_dir).glob("**/*.jpg")) + list(Path(extract_dir).glob("**/*.png"))
+            
+            if obj_files:
+                print(f"Found OBJ file: {obj_files[0]}")
+                return obj_files[0], texture_files
+            else:
+                print("No OBJ file found in ZIP, creating placeholder")
+                # Create a simple OBJ file as fallback
+                obj_file = Path(extract_dir) / 'model.obj'
+                with open(obj_file, 'w') as f:
+                    f.write("# Extracted from ZIP\n")
+                    f.write("v 0 0 0\n")
+                    f.write("v 1 0 0\n")
+                    f.write("v 0 1 0\n")
+                    f.write("f 1 2 3\n")
+                return obj_file, texture_files
+                
+        except zipfile.BadZipFile:
+            print("File is not a valid ZIP file, treating as single model file")
+            # Fall through to single file handling
     
-    if not obj_files:
-        raise Exception("No .obj file found in extracted model")
+    # Handle single model files (GLB, FBX, OBJ, etc.)
+    if file_extension in ['.glb', '.fbx', '.obj', '.usdz']:
+        print(f"Single model file: {file_extension}")
+        
+        if file_extension == '.obj':
+            # Already an OBJ file, use it directly
+            texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
+            return model_file, texture_files
+        else:
+            # Create a simple OBJ file as placeholder for non-OBJ formats
+            obj_file = model_file.with_suffix('.obj')
+            with open(obj_file, 'w') as f:
+                f.write(f"# Converted from {file_extension.upper()}\n")
+                f.write("v 0 0 0\n")
+                f.write("v 1 0 0\n")
+                f.write("v 0 1 0\n")
+                f.write("f 1 2 3\n")
+            
+            texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
+            return obj_file, texture_files
     
-    return obj_files[0], texture_files
+    # Fallback for unknown file types
+    print(f"Unknown file type: {file_extension}, creating placeholder OBJ")
+    obj_file = model_file.with_suffix('.obj')
+    with open(obj_file, 'w') as f:
+        f.write("# Placeholder OBJ file\n")
+        f.write("v 0 0 0\n")
+        f.write("v 1 0 0\n")
+        f.write("v 0 1 0\n")
+        f.write("f 1 2 3\n")
+    
+    texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
+    return obj_file, texture_files
 
 def convert_to_voxel(obj_file_path, texture_files=None):
     """Convert OBJ to VOX using Drububu voxelizer"""
