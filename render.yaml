@@ -1,32 +1,9 @@
 services:
-  # Web Service for the Flask application - Updated 2025-10-23
   - type: web
     name: 3d-model-generator
-    runtime: python
-    buildCommand: "bash build.sh"
-    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --threads 2"
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
-        value: "3.11"
-      - key: MESHY_API_KEY
-        value: msy_pQhyJ89ykjyGorHDhFJn7NJ2GzPNGMQ4qE77
-      - key: PORT
-        generateValue: true
-    autoDeploy: true
-    region: oregon
-    plan: free
-    healthCheckPath: /
-    
-    # Optional: Define build filters to only deploy on main branch
-    buildFilter:
-      paths:
-        - "**/*.py"
-        - "requirements.txt"
-        - "templates/**"
-        - "render.yaml"
-      ignoredPaths:
-        - "output/**"
-        - "input/**"
-        - "uploads/**"
-        - "__pycache__/**"
-        - "*.pyc"
+        value: 3.11.0
