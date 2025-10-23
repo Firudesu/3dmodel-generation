@@ -273,36 +273,36 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj", timeout=30000)
         page.wait_for_load_state("networkidle", timeout=30000)
         print("Page loaded successfully")
-            
-            # Upload OBJ file
-            file_input = page.locator('input[type="file"]#file_input')
-            file_input.set_input_files(str(obj_file_path))
+        
+        # Upload OBJ file
+        file_input = page.locator('input[type="file"]#file_input')
+        file_input.set_input_files(str(obj_file_path))
+        page.wait_for_timeout(5000)
+        
+        # Upload texture if available
+        if texture_files:
+            texture_input = page.locator('input[type="file"]#file_input_texture')
+            texture_input.set_input_files(str(texture_files[0]))
             page.wait_for_timeout(5000)
-            
-            # Upload texture if available
-            if texture_files:
-                texture_input = page.locator('input[type="file"]#file_input_texture')
-                texture_input.set_input_files(str(texture_files[0]))
-                page.wait_for_timeout(5000)
-            
-            # Download result
-            with page.expect_download() as download_info:
-                page.evaluate("""
-                    const elements = document.querySelectorAll('a, button, input[type="submit"]');
-                    for (let el of elements) {
-                        const text = el.textContent.toLowerCase();
-                        if (text.includes('download') || text.includes('obj')) {
-                            el.click();
-                            break;
-                        }
+        
+        # Download result
+        with page.expect_download() as download_info:
+            page.evaluate("""
+                const elements = document.querySelectorAll('a, button, input[type="submit"]');
+                for (let el of elements) {
+                    const text = el.textContent.toLowerCase();
+                    if (text.includes('download') || text.includes('obj')) {
+                        el.click();
+                        break;
                     }
-                """)
-            
-            download = download_info.value
-            vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
-            download.save_as(vox_file_path)
-            
-            return vox_file_path
+                }
+            """)
+        
+        download = download_info.value
+        vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
+        download.save_as(vox_file_path)
+        
+        return vox_file_path
             
     except Exception as e:
         print(f"Voxel conversion error: {e}")
