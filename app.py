@@ -848,6 +848,8 @@ def upload_file():
 @app.route('/status')
 def get_status():
     """Get current processing status"""
+    if current_status == "Complete!" and generated_files:
+        print(f"Status endpoint returning files: {generated_files}")
     return jsonify({
         'status': current_status,
         'progress': progress_percentage,
@@ -859,9 +861,13 @@ def get_status():
 @app.route('/download/<filename>')
 def download_file(filename):
     """Download generated files"""
+    print(f"Download requested for: {filename}")
     try:
         # Check if file exists in output folder
         file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
+        print(f"Looking for file at: {file_path}")
+        print(f"File exists: {os.path.exists(file_path)}")
+        
         if os.path.exists(file_path):
             # Determine MIME type based on extension
             file_ext = os.path.splitext(filename)[1].lower()
