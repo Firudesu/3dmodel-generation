@@ -287,7 +287,31 @@ def test_api_endpoints():
 
 def create_textured_3d_model(image_path):
     """Create textured 3D model using working Meshy API"""
-    update_status("Creating 3D model...", 20, "Testing Meshy API endpoints")
+    update_status("Creating 3D model...", 20, "Validating image file")
+    
+    # Validate image file
+    if not os.path.exists(image_path):
+        raise Exception(f"Image file not found: {image_path}")
+    
+    file_size = os.path.getsize(image_path)
+    if file_size < 1000:  # Less than 1KB is likely not a valid image
+        raise Exception(f"Image file too small ({file_size} bytes). Please upload a valid image file.")
+    
+    # Check if it's actually an image by reading the header
+    with open(image_path, 'rb') as f:
+        header = f.read(12)
+        
+    # Check for common image formats
+    is_jpeg = header[:3] == b'\xff\xd8\xff'
+    is_png = header[:8] == b'\x89PNG\r\n\x1a\n'
+    is_gif = header[:6] in [b'GIF87a', b'GIF89a']
+    is_webp = header[:4] == b'RIFF' and header[8:12] == b'WEBP'
+    
+    if not (is_jpeg or is_png or is_gif or is_webp):
+        raise Exception("File does not appear to be a valid image (JPEG, PNG, GIF, or WebP)")
+    
+    print(f"Image validated: {os.path.basename(image_path)} ({file_size} bytes)")
+    update_status("Creating 3D model...", 22, "Testing Meshy API endpoints")
     
     # Test which endpoints work
     working_endpoints = test_api_endpoints()
@@ -300,7 +324,7 @@ def create_textured_3d_model(image_path):
         # Use the first working endpoint
         endpoint, name = working_endpoints[0]
     
-    update_status("Creating 3D model...", 25, f"Using {name} - Task created, processing...")
+    update_status("Creating 3D model...", 25, f"Using {name} - Uploading image...")
     
     headers = {"Authorization": f"Bearer {MESHY_API_KEY}"}
     
@@ -320,7 +344,9 @@ def create_textured_3d_model(image_path):
         data = {
             "image_url": image_data_uri,
             "ai_model": "meshy-4",
-            "enable_pbr": True
+            "enable_pbr": True,
+            "topology": "quad",  # Better topology for voxel conversion
+            "target_polycount": 30000  # Reasonable polycount
         }
         
         response = requests.post(endpoint, headers=headers, json=data, timeout=30)
@@ -484,15 +510,19 @@ def poll_meshy_task(task_id, task_type="texture", creation_endpoint=None):
     # Use the first endpoint that works
     endpoint = polling_endpoints[0] if polling_endpoints else f"{MESHY_BASE_URL}/v1/texture-to-3d/{task_id}"
     
-    max_attempts = 60
+    max_attempts = 120  # Increased from 60 to 120 (10 minutes total)
     attempt = 0
     current_endpoint_index = 0
+    last_progress = 0
     
     while attempt < max_attempts:
         try:
-            print(f"Polling attempt {attempt + 1}/{max_attempts} - Endpoint: {endpoint}")
+            if attempt % 6 == 0:  # Log every 30 seconds
+                print(f"Polling attempt {attempt + 1}/{max_attempts} - Endpoint: {endpoint}")
             response = requests.get(endpoint, headers=headers)
-            print(f"Polling response status: {response.status_code}")
+            
+            if attempt % 6 == 0:  # Log every 30 seconds
+                print(f"Polling response status: {response.status_code}")
             
             if response.status_code == 404 and current_endpoint_index < len(polling_endpoints) - 1:
                 # Try next endpoint
@@ -507,14 +537,26 @@ def poll_meshy_task(task_id, task_type="texture", creation_endpoint=None):
             
             result = response.json()
             status = result.get('status')
+            progress = result.get('progress', 0)
             
-            update_status(f"Processing {task_type}...", 70 + (attempt * 0.5), f"Status: {status}")
+            # Update with actual progress from API
+            if progress > last_progress:
+                last_progress = progress
+                print(f"Task progress: {progress}% - Status: {status}")
+            
+            # Map API progress to our progress bar (30-80% range)
+            display_progress = 30 + (progress * 0.5)  # 30% to 80% of our progress bar
+            update_status(f"Processing {task_type}...", display_progress, f"Status: {status} ({progress}%)")
             
             if status == 'SUCCEEDED':
                 update_status(f"{task_type.title()} completed!", 80, f"{task_type.title()} task completed successfully")
+                print(f"✅ Task succeeded after {attempt + 1} attempts")
                 return result
             elif status == 'FAILED':
-                raise Exception(f"{task_type} task failed: {result.get('task_error', {}).get('message', 'Unknown error')}")
+                error_msg = result.get('task_error', {}).get('message', 'Unknown error')
+                print(f"❌ Task failed: {error_msg}")
+                print(f"Full error details: {result.get('task_error', {})}")
+                raise Exception(f"{task_type} task failed: {error_msg}")
             
         except Exception as e:
             if current_endpoint_index < len(polling_endpoints) - 1:
