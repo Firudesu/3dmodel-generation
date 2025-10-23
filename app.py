@@ -82,54 +82,117 @@ def update_status(status, percentage=0, task="", error=""):
 # Keeping this comment to maintain line numbers for now
 
 def download_meshy_files(result):
-    """Download model files from Meshy"""
+    """Download model files from Meshy and create a ZIP package"""
     update_status("Downloading files...", 85, "Downloading model files from Meshy")
     
     print(f"Download function received result keys: {result.keys()}")
     
-    # Try different response formats - prioritize OBJ files
-    model_url = None
-    file_type = None
+    # Meshy returns individual files, not a ZIP. We need to download them all.
+    if 'model_urls' not in result:
+        raise Exception("No model URLs found in Meshy response")
     
-    # Check for model URLs - Meshy returns different formats
-    if 'model_urls' in result:
-        model_urls = result['model_urls']
-        print(f"Available model formats: {list(model_urls.keys())}")
+    model_urls = result['model_urls']
+    print(f"Available model formats: {list(model_urls.keys())}")
+    
+    # For OBJ format, we need to download OBJ, MTL, and textures separately
+    if 'obj' in model_urls and 'mtl' in model_urls:
+        print("✅ Found OBJ + MTL format - will download all components")
         
-        # Prioritize OBJ format as it comes with textures in a ZIP
-        if 'obj' in model_urls:
-            model_url = model_urls['obj']
-            file_type = 'obj'
-            print("✅ Found OBJ format (should be ZIP with textures)")
-        elif 'glb' in model_urls:
-            model_url = model_urls['glb']
-            file_type = 'glb'
-            print("Found GLB format")
-        elif 'fbx' in model_urls:
-            model_url = model_urls['fbx']
-            file_type = 'fbx'
-            print("Found FBX format")
-        elif 'usdz' in model_urls:
-            model_url = model_urls['usdz']
-            file_type = 'usdz'
-            print("Found USDZ format")
-        else:
-            # Take the first available format
-            first_format = list(model_urls.keys())[0]
-            model_url = model_urls[first_format]
-            file_type = first_format
-            print(f"Using first available format: {first_format}")
+        # Create a temporary directory for all files
+        import tempfile
+        temp_dir = tempfile.mkdtemp()
+        print(f"Using temp directory: {temp_dir}")
+        
+        downloaded_files = []
+        
+        # 1. Download OBJ file
+        obj_url = model_urls['obj']
+        print(f"Downloading OBJ from: {obj_url[:100]}...")
+        response = requests.get(obj_url, timeout=60)
+        if response.status_code == 200:
+            obj_path = os.path.join(temp_dir, 'model.obj')
+            with open(obj_path, 'wb') as f:
+                f.write(response.content)
+            downloaded_files.append('model.obj')
+            print(f"✅ Downloaded OBJ: {len(response.content)} bytes")
+        
+        # 2. Download MTL file
+        mtl_url = model_urls['mtl']
+        print(f"Downloading MTL from: {mtl_url[:100]}...")
+        response = requests.get(mtl_url, timeout=60)
+        if response.status_code == 200:
+            mtl_path = os.path.join(temp_dir, 'model.mtl')
+            with open(mtl_path, 'wb') as f:
+                f.write(response.content)
+            downloaded_files.append('model.mtl')
+            print(f"✅ Downloaded MTL: {len(response.content)} bytes")
+        
+        # 3. Download texture files
+        texture_urls = result.get('texture_urls', [])
+        for i, texture_info in enumerate(texture_urls):
+            if isinstance(texture_info, dict) and 'base_color' in texture_info:
+                texture_url = texture_info['base_color']
+            elif isinstance(texture_info, str):
+                texture_url = texture_info
+            else:
+                continue
+                
+            print(f"Downloading texture {i} from: {texture_url[:100]}...")
+            response = requests.get(texture_url, timeout=60)
+            if response.status_code == 200:
+                # Determine extension from content or URL
+                if 'png' in texture_url.lower():
+                    ext = 'png'
+                else:
+                    ext = 'jpg'
+                texture_path = os.path.join(temp_dir, f'texture_{i}.{ext}')
+                with open(texture_path, 'wb') as f:
+                    f.write(response.content)
+                downloaded_files.append(f'texture_{i}.{ext}')
+                print(f"✅ Downloaded texture {i}: {len(response.content)} bytes")
+        
+        # 4. Create ZIP file with all components
+        zip_path = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_model.zip')
+        os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
+        
+        print(f"Creating ZIP package with {len(downloaded_files)} files...")
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file in downloaded_files:
+                file_path = os.path.join(temp_dir, file)
+                if os.path.exists(file_path):
+                    zipf.write(file_path, file)
+                    print(f"  Added {file} to ZIP")
+        
+        # Clean up temp directory
+        import shutil
+        shutil.rmtree(temp_dir)
+        
+        print(f"✅ Created ZIP package: {zip_path} ({os.path.getsize(zip_path)} bytes)")
+        return zip_path
+        
+    # For other formats (GLB, FBX, USDZ), download as-is
+    elif 'glb' in model_urls:
+        model_url = model_urls['glb']
+        file_type = 'glb'
+        print("Using GLB format (contains embedded textures)")
+    elif 'fbx' in model_urls:
+        model_url = model_urls['fbx']
+        file_type = 'fbx'
+        print("Using FBX format")
+    elif 'usdz' in model_urls:
+        model_url = model_urls['usdz']
+        file_type = 'usdz'
+        print("Using USDZ format")
+    else:
+        # Use the first available format
+        first_format = list(model_urls.keys())[0]
+        model_url = model_urls[first_format]
+        file_type = first_format
+        print(f"Using first available format: {first_format}")
     
-    # Fallback to direct model_url
-    if not model_url:
-        model_url = result.get('model_url')
-        file_type = 'unknown'
-    
-    if not model_url:
-        print(f"ERROR: No model URL found in response. Full result: {json.dumps(result, indent=2)}")
-        raise Exception("No model URL found in Meshy response")
-    
-    print(f"Downloading from URL: {model_url[:100]}...")  # Show first 100 chars
+    # For non-OBJ formats, download the single file
+    print(f"Downloading from URL: {model_url[:100]}...")
     print(f"Expected file type: {file_type}")
     
     try:
@@ -144,24 +207,18 @@ def download_meshy_files(result):
     except Exception as e:
         raise Exception(f"Download error: {str(e)}")
     
-    # Detect file type from URL or content
-    content_type = response.headers.get('content-type', '')
-    
-    # For OBJ format from Meshy, it's usually a ZIP containing OBJ + textures
-    if file_type == 'obj':
-        file_extension = '.zip'
-        print("OBJ format detected - expecting ZIP with textures")
-    elif 'zip' in model_url or 'application/zip' in content_type:
-        file_extension = '.zip'
-    elif 'glb' in model_url or 'application/octet-stream' in content_type:
+    # Determine file extension
+    if file_type == 'glb':
         file_extension = '.glb'
-    elif 'fbx' in model_url:
+    elif file_type == 'fbx':
         file_extension = '.fbx'
+    elif file_type == 'usdz':
+        file_extension = '.usdz'
     else:
-        file_extension = '.zip'  # Default to ZIP
+        file_extension = f'.{file_type}'
     
-    # Save with appropriate extension
-    os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)  # Ensure output folder exists
+    # Save the file
+    os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
     model_path = os.path.join(app.config['OUTPUT_FOLDER'], f'meshy_model{file_extension}')
     
     try:
