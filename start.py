@@ -74,7 +74,27 @@ def main():
     
     try:
         from app import app
-        app.run(host='0.0.0.0', port=5000, debug=False)
+        
+        # Use environment PORT if available, otherwise try default ports
+        env_port = os.environ.get('PORT')
+        if env_port:
+            port = int(env_port)
+            print(f"🌐 Using environment PORT: {port}")
+            app.run(host='0.0.0.0', port=port, debug=False)
+        else:
+            # Try different ports in case 5000 is in use
+            ports = [5000, 8080, 3000, 8000]
+            for port in ports:
+                try:
+                    print(f"🌐 Trying to start on port {port}...")
+                    app.run(host='0.0.0.0', port=port, debug=False)
+                    break
+                except OSError as e:
+                    if "Address already in use" in str(e):
+                        print(f"⚠️ Port {port} is in use, trying next port...")
+                        continue
+                    else:
+                        raise e
     except KeyboardInterrupt:
         print("\n👋 Shutting down...")
     except Exception as e:
