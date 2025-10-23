@@ -295,9 +295,9 @@
                     <li>Upload the OBJ file below</li>
                     <li>Upload the texture file (optional - for preview only)</li>
                     <li>Click "Convert to Voxel"</li>
-                    <li>Download your VOX file (64x64x64 voxel resolution)</li>
+                    <li>Download your VOX file (automatic resolution based on model size)</li>
                 </ol>
-                <p><strong>Note:</strong> This converts your 3D model into actual voxels that can be edited in MagicaVoxel!</p>
+                <p><strong>Note:</strong> This converts your 3D model into actual voxels with texture support that can be edited in MagicaVoxel!</p>
             </div>
             
             <div class="upload-area" id="uploadAreaObj">
@@ -335,15 +335,13 @@
             </div>
             
             <div class="instructions" style="margin-top: 20px;">
-                <h3>💡 Alternative Method:</h3>
-                <p>You can also use the <a href="https://drububu.com/miscellaneous/voxelizer/" target="_blank" style="color: #667eea;">Drububu Voxelizer</a> directly:</p>
-                <ol>
-                    <li>Visit the website</li>
-                    <li>Upload your OBJ file</li>
-                    <li>Upload texture (if available)</li>
-                    <li>Adjust settings as needed</li>
-                    <li>Download the VOX file</li>
-                </ol>
+                <h3>✨ Features:</h3>
+                <ul>
+                    <li><strong>Automatic sizing:</strong> Voxel resolution adapts to your model size</li>
+                    <li><strong>Texture support:</strong> PNG/JPG textures are applied to voxels</li>
+                    <li><strong>Optimized conversion:</strong> Improved algorithm for better results</li>
+                    <li><strong>MagicaVoxel compatible:</strong> Works with all VOX editors</li>
+                </ul>
             </div>
         </div>
     </div>
@@ -585,14 +583,14 @@
                     }, 500);
                 } else {
                     // Conversion failed
-                    voxelStatus.textContent = result.message || 'Conversion failed. Please use the Drububu website directly.';
+                    voxelStatus.textContent = result.error || 'Conversion failed. Please check your files and try again.';
                     voxelProgressFill.style.width = '0%';
                     convertBtn.disabled = false;
                     
                     // Show error and reset after 3 seconds
                     setTimeout(() => {
                         voxelProgress.style.display = 'none';
-                        alert(result.message || 'Voxel conversion failed. Please use the Drububu website directly.');
+                        alert(result.error || 'Voxel conversion failed. Please check your files and try again.');
                     }, 3000);
                 }
             } catch (error) {

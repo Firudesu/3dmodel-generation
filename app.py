@@ -17,13 +17,7 @@ from werkzeug.utils import secure_filename
 import tempfile
 import shutil
 
-# Try to import playwright, but don't fail if it's not available
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    print("⚠️ Playwright not available - voxel conversion will be skipped")
+# Voxel conversion is now handled by our internal Python converter
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -294,150 +288,25 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         
         print("Using Python voxel converter...")
         
-        # Convert with reasonable voxel resolution
-        voxel_size = 64  # 64x64x64 voxel grid
-        result_path = convert_obj_to_vox(obj_file_path, vox_file_path, voxel_size)
+        # Determine texture file path
+        texture_path = None
+        if texture_files and len(texture_files) > 0:
+            texture_path = texture_files[0]
+            print(f"Using texture file: {texture_path}")
+        
+        # Convert with automatic voxel size detection and texture support
+        result_path = convert_obj_to_vox(obj_file_path, vox_file_path, voxel_size=None, texture_path=texture_path)
         
         print(f"✅ Successfully converted to VOX: {result_path}")
         return result_path
         
     except ImportError as e:
         print(f"⚠️ Voxel converter not available: {e}")
-        print("Attempting browser-based conversion...")
-        
-        # Fallback to browser automation if available
-        if PLAYWRIGHT_AVAILABLE:
-            return convert_with_playwright(obj_file_path, texture_files, vox_file_path)
-        else:
-            # Last resort - create basic VOX structure
-            print("Creating basic VOX file as fallback...")
-            vox_data = bytearray()
-            vox_data.extend(b'VOX ')  
-            vox_data.extend((150).to_bytes(4, 'little'))
-            vox_data.extend(b'MAIN')
-            vox_data.extend((0).to_bytes(4, 'little'))
-            vox_data.extend((28 + 12 + 12).to_bytes(4, 'little'))
-            vox_data.extend(b'SIZE')
-            vox_data.extend((12).to_bytes(4, 'little'))
-            vox_data.extend((0).to_bytes(4, 'little'))
-            vox_data.extend((32).to_bytes(4, 'little'))
-            vox_data.extend((32).to_bytes(4, 'little'))
-            vox_data.extend((32).to_bytes(4, 'little'))
-            vox_data.extend(b'XYZI')
-            vox_data.extend((4).to_bytes(4, 'little'))
-            vox_data.extend((0).to_bytes(4, 'little'))
-            vox_data.extend((0).to_bytes(4, 'little'))
-            
-            with open(vox_file_path, 'wb') as f:
-                f.write(vox_data)
-            
-            return vox_file_path
+        raise Exception(f"Voxel converter module not available: {str(e)}")
             
     except Exception as e:
         print(f"❌ Voxel conversion error: {e}")
         raise Exception(f"Failed to convert to voxel: {str(e)}")
-
-def convert_with_playwright(obj_file_path, texture_files, vox_file_path):
-    """Fallback browser-based conversion"""
-    
-    try:
-        print("Launching browser for voxel conversion...")
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage']  # Required for some environments
-            )
-            context = browser.new_context(accept_downloads=True)
-            page = context.new_page()
-            print("Browser launched successfully")
-    except Exception as e:
-        if "Executable doesn't exist" in str(e):
-            print("🔧 Playwright browsers not found, attempting to install...")
-            try:
-                import subprocess
-                result = subprocess.run(
-                    [sys.executable, "-m", "playwright", "install", "chromium"],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                print(f"Installation output: {result.stdout}")
-                if result.returncode != 0:
-                    print(f"Installation error: {result.stderr}")
-                    raise Exception("Failed to install Playwright browsers")
-                    
-                print("✅ Browsers installed, retrying...")
-                with sync_playwright() as p:
-                    browser = p.chromium.launch(
-                        headless=True,
-                        args=['--no-sandbox', '--disable-dev-shm-usage']
-                    )
-                    context = browser.new_context(accept_downloads=True)
-                    page = context.new_page()
-            except Exception as install_error:
-                print(f"❌ Failed to install Playwright: {install_error}")
-                raise Exception(f"Cannot use browser-based voxel conversion: {install_error}")
-        else:
-            print(f"❌ Browser launch failed: {e}")
-            raise Exception(f"Failed to launch browser for voxel conversion: {e}")
-    
-    # Now try the actual conversion
-    try:
-        print("Navigating to Drububu voxelizer...")
-        page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj", timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=30000)
-        print("Page loaded successfully")
-        
-        # Upload OBJ file
-        file_input = page.locator('input[type="file"]#file_input')
-        file_input.set_input_files(str(obj_file_path))
-        page.wait_for_timeout(5000)
-        
-        # Upload texture if available
-        if texture_files:
-            texture_input = page.locator('input[type="file"]#file_input_texture')
-            texture_input.set_input_files(str(texture_files[0]))
-            page.wait_for_timeout(5000)
-        
-        # Download result
-        with page.expect_download() as download_info:
-            page.evaluate("""
-                const elements = document.querySelectorAll('a, button, input[type="submit"]');
-                for (let el of elements) {
-                    const text = el.textContent.toLowerCase();
-                    if (text.includes('download') || text.includes('obj')) {
-                        el.click();
-                        break;
-                    }
-                }
-            """)
-        
-        download = download_info.value
-        vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
-        download.save_as(vox_file_path)
-        
-        return vox_file_path
-            
-    except Exception as e:
-        print(f"Voxel conversion error: {e}")
-        # Create a placeholder VOX file
-        vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
-        
-        # Try to create a simple VOX file header (MagicaVoxel format)
-        # This is a minimal valid VOX file structure
-        vox_header = b'VOX \x96\x00\x00\x00MAIN\x00\x00\x00\x00\x00\x00\x00\x00'
-        
-        try:
-            with open(vox_file_path, 'wb') as f:
-                f.write(vox_header)
-            print(f"Created placeholder VOX file at: {vox_file_path}")
-            return vox_file_path
-        except:
-            print("Failed to create placeholder VOX file")
-            raise Exception(f"Voxel conversion failed: {e}")
-    finally:
-        if 'browser' in locals():
-            browser.close()
 
 def test_api_endpoints():
     """Test which Meshy API endpoints are working"""
@@ -970,25 +839,18 @@ def manual_voxel_convert():
             texture_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(texture_file.filename))
             texture_file.save(texture_path)
         
-        # Create a basic VOX file
+        # Convert to VOX using improved converter
         try:
             vox_path = convert_to_voxel(obj_path, [texture_path] if texture_path else None)
             return jsonify({
                 'success': True,
                 'vox_file': os.path.basename(vox_path),
-                'message': 'Basic VOX file created. For full conversion, use Drububu website.'
+                'message': 'VOX file created successfully with automatic sizing and texture support!'
             })
         except Exception as e:
-            # Even if it fails, try to create a basic VOX
-            vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
-            vox_header = b'VOX \x96\x00\x00\x00MAIN\x00\x00\x00\x00\x00\x00\x00\x00'
-            with open(vox_file_path, 'wb') as f:
-                f.write(vox_header)
-            
             return jsonify({
-                'success': True,
-                'vox_file': 'model.vox',
-                'message': 'Created basic VOX file structure.'
+                'success': False,
+                'error': f'Voxel conversion failed: {str(e)}'
             })
             
     except Exception as e:
