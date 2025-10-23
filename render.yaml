@@ -3,7 +3,7 @@ services:
   - type: web
     name: 3d-model-generator
     runtime: python
-    buildCommand: pip install -r requirements.txt && playwright install chromium && playwright install-deps
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --threads 2
     envVars:
       - key: PYTHON_VERSION

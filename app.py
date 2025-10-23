@@ -17,13 +17,8 @@ from werkzeug.utils import secure_filename
 import tempfile
 import shutil
 
-# Try to import playwright, but don't fail if it's not available
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    print("⚠️ Playwright not available - voxel conversion will be skipped")
+# Playwright is not needed anymore since we use native Python voxel conversion
+PLAYWRIGHT_AVAILABLE = False
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -347,107 +342,7 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         print(f"❌ Voxel conversion error: {e}")
         raise Exception(f"Failed to convert to voxel: {str(e)}")
 
-def convert_with_playwright_deprecated(obj_file_path, texture_files, vox_file_path):
-    """Fallback browser-based conversion"""
-    
-    try:
-        print("Launching browser for voxel conversion...")
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage']  # Required for some environments
-            )
-            context = browser.new_context(accept_downloads=True)
-            page = context.new_page()
-            print("Browser launched successfully")
-    except Exception as e:
-        if "Executable doesn't exist" in str(e):
-            print("🔧 Playwright browsers not found, attempting to install...")
-            try:
-                import subprocess
-                result = subprocess.run(
-                    [sys.executable, "-m", "playwright", "install", "chromium"],
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                print(f"Installation output: {result.stdout}")
-                if result.returncode != 0:
-                    print(f"Installation error: {result.stderr}")
-                    raise Exception("Failed to install Playwright browsers")
-                    
-                print("✅ Browsers installed, retrying...")
-                with sync_playwright() as p:
-                    browser = p.chromium.launch(
-                        headless=True,
-                        args=['--no-sandbox', '--disable-dev-shm-usage']
-                    )
-                    context = browser.new_context(accept_downloads=True)
-                    page = context.new_page()
-            except Exception as install_error:
-                print(f"❌ Failed to install Playwright: {install_error}")
-                raise Exception(f"Cannot use browser-based voxel conversion: {install_error}")
-        else:
-            print(f"❌ Browser launch failed: {e}")
-            raise Exception(f"Failed to launch browser for voxel conversion: {e}")
-    
-    # Now try the actual conversion
-    try:
-        print("Navigating to Drububu voxelizer...")
-        page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj", timeout=30000)
-        page.wait_for_load_state("networkidle", timeout=30000)
-        print("Page loaded successfully")
-        
-        # Upload OBJ file
-        file_input = page.locator('input[type="file"]#file_input')
-        file_input.set_input_files(str(obj_file_path))
-        page.wait_for_timeout(5000)
-        
-        # Upload texture if available
-        if texture_files:
-            texture_input = page.locator('input[type="file"]#file_input_texture')
-            texture_input.set_input_files(str(texture_files[0]))
-            page.wait_for_timeout(5000)
-        
-        # Download result
-        with page.expect_download() as download_info:
-            page.evaluate("""
-                const elements = document.querySelectorAll('a, button, input[type="submit"]');
-                for (let el of elements) {
-                    const text = el.textContent.toLowerCase();
-                    if (text.includes('download') || text.includes('obj')) {
-                        el.click();
-                        break;
-                    }
-                }
-            """)
-        
-        download = download_info.value
-        vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
-        download.save_as(vox_file_path)
-        
-        return vox_file_path
-            
-    except Exception as e:
-        print(f"Voxel conversion error: {e}")
-        # Create a placeholder VOX file
-        vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
-        
-        # Try to create a simple VOX file header (MagicaVoxel format)
-        # This is a minimal valid VOX file structure
-        vox_header = b'VOX \x96\x00\x00\x00MAIN\x00\x00\x00\x00\x00\x00\x00\x00'
-        
-        try:
-            with open(vox_file_path, 'wb') as f:
-                f.write(vox_header)
-            print(f"Created placeholder VOX file at: {vox_file_path}")
-            return vox_file_path
-        except:
-            print("Failed to create placeholder VOX file")
-            raise Exception(f"Voxel conversion failed: {e}")
-    finally:
-        if 'browser' in locals():
-            browser.close()
+# Removed deprecated playwright function - using native Python voxel conversion only
 
 def test_api_endpoints():
     """Test which Meshy API endpoints are working"""
