@@ -78,6 +78,8 @@ def download_meshy_files(result):
     """Download model files from Meshy"""
     update_status("Downloading files...", 85, "Downloading model files from Meshy")
     
+    print(f"Download function received result keys: {result.keys()}")
+    
     # Try different response formats - prioritize OBJ files
     model_url = None
     file_type = None
@@ -85,15 +87,25 @@ def download_meshy_files(result):
     # Check for OBJ files first
     if 'model_urls' in result:
         model_urls = result['model_urls']
+        print(f"Available model formats: {list(model_urls.keys())}")
+        
         if 'obj' in model_urls:
             model_url = model_urls['obj']
             file_type = 'obj'
-        elif 'preview' in model_urls:
-            model_url = model_urls['preview']
-            file_type = 'preview'
         elif 'glb' in model_urls:
             model_url = model_urls['glb']
             file_type = 'glb'
+        elif 'fbx' in model_urls:
+            model_url = model_urls['fbx']
+            file_type = 'fbx'
+        elif 'usdz' in model_urls:
+            model_url = model_urls['usdz']
+            file_type = 'usdz'
+        else:
+            # Take the first available format
+            first_format = list(model_urls.keys())[0]
+            model_url = model_urls[first_format]
+            file_type = first_format
     
     # Fallback to direct model_url
     if not model_url:
@@ -101,6 +113,7 @@ def download_meshy_files(result):
         file_type = 'unknown'
     
     if not model_url:
+        print(f"ERROR: No model URL found in response. Full result: {json.dumps(result, indent=2)}")
         raise Exception("No model URL found in Meshy response")
     
     print(f"Downloading from URL: {model_url}")
@@ -341,12 +354,10 @@ def create_textured_3d_model(image_path):
             base64_data = base64.b64encode(image_data).decode('utf-8')
             image_data_uri = f"data:{content_type};base64,{base64_data}"
         
+        # Use minimal parameters that are proven to work
         data = {
-            "image_url": image_data_uri,
-            "ai_model": "meshy-4",
-            "enable_pbr": True,
-            "topology": "quad",  # Better topology for voxel conversion
-            "target_polycount": 30000  # Reasonable polycount
+            "image_url": image_data_uri
+            # Removed extra parameters that might cause issues
         }
         
         response = requests.post(endpoint, headers=headers, json=data, timeout=30)
@@ -368,10 +379,10 @@ def create_textured_3d_model(image_path):
             base64_data = base64.b64encode(image_data).decode('utf-8')
             image_data_uri = f"data:{content_type};base64,{base64_data}"
         
+        # Use minimal parameters that are proven to work
         data = {
-            "image_url": image_data_uri,
-            "ai_model": "meshy-5",
-            "enable_pbr": True
+            "image_url": image_data_uri
+            # Removed extra parameters that might cause issues
         }
         
         response = requests.post(endpoint, headers=headers, json=data, timeout=30)
@@ -551,6 +562,13 @@ def poll_meshy_task(task_id, task_type="texture", creation_endpoint=None):
             if status == 'SUCCEEDED':
                 update_status(f"{task_type.title()} completed!", 80, f"{task_type.title()} task completed successfully")
                 print(f"✅ Task succeeded after {attempt + 1} attempts")
+                print(f"Response data: {json.dumps(result, indent=2)[:1000]}...")  # Log first 1000 chars
+                
+                # Check if we actually have model URLs
+                if 'model_urls' not in result and 'model_url' not in result:
+                    print("⚠️ WARNING: No model URLs in response!")
+                    print(f"Full response: {result}")
+                
                 return result
             elif status == 'FAILED':
                 error_msg = result.get('task_error', {}).get('message', 'Unknown error')
@@ -598,14 +616,15 @@ def process_image_async(image_path):
         
         # Update generated files list
         generated_files = [
-            {'name': '3D Model', 'path': model_path, 'type': 'model'},
-            {'name': 'OBJ File', 'path': str(obj_file), 'type': 'obj'},
-            {'name': 'VOX File', 'path': vox_file, 'type': 'vox'}
+            {'name': '3D Model', 'path': os.path.basename(model_path), 'type': 'model'},
+            {'name': 'OBJ File', 'path': os.path.basename(str(obj_file)), 'type': 'obj'},
+            {'name': 'VOX File', 'path': os.path.basename(vox_file), 'type': 'vox'}
         ]
         
         if texture_files:
-            generated_files.append({'name': 'Texture File', 'path': str(texture_files[0]), 'type': 'image'})
+            generated_files.append({'name': 'Texture File', 'path': os.path.basename(str(texture_files[0])), 'type': 'image'})
         
+        print(f"Generated files list: {generated_files}")
         update_status("Complete!", 100, "All files generated successfully")
         
     except Exception as e:
