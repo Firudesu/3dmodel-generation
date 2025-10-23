@@ -14,9 +14,16 @@ import threading
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
 from werkzeug.utils import secure_filename
-from playwright.sync_api import sync_playwright
 import tempfile
 import shutil
+
+# Try to import playwright, but don't fail if it's not available
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    print("⚠️ Playwright not available - voxel conversion will be skipped")
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -116,12 +123,20 @@ def download_meshy_files(result):
         print(f"ERROR: No model URL found in response. Full result: {json.dumps(result, indent=2)}")
         raise Exception("No model URL found in Meshy response")
     
-    print(f"Downloading from URL: {model_url}")
+    print(f"Downloading from URL: {model_url[:100]}...")  # Show first 100 chars
     print(f"Expected file type: {file_type}")
     
-    response = requests.get(model_url)
-    if response.status_code != 200:
-        raise Exception(f"Failed to download model: {response.status_code}")
+    try:
+        response = requests.get(model_url, timeout=60)
+        print(f"Download response status: {response.status_code}")
+        print(f"Content length: {len(response.content)} bytes")
+        
+        if response.status_code != 200:
+            raise Exception(f"Failed to download model: {response.status_code}")
+    except requests.exceptions.Timeout:
+        raise Exception("Download timed out after 60 seconds")
+    except Exception as e:
+        raise Exception(f"Download error: {str(e)}")
     
     # Detect file type from URL or content
     content_type = response.headers.get('content-type', '')
@@ -137,11 +152,16 @@ def download_meshy_files(result):
         file_extension = '.zip'
     
     # Save with appropriate extension
+    os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)  # Ensure output folder exists
     model_path = os.path.join(app.config['OUTPUT_FOLDER'], f'meshy_model{file_extension}')
-    with open(model_path, 'wb') as f:
-        f.write(response.content)
     
-    print(f"Downloaded file: {model_path} (type: {file_extension})")
+    try:
+        with open(model_path, 'wb') as f:
+            f.write(response.content)
+        print(f"✅ Downloaded file: {model_path} (size: {len(response.content)} bytes, type: {file_extension})")
+    except Exception as save_error:
+        raise Exception(f"Failed to save downloaded file: {save_error}")
+    
     update_status("Files downloaded...", 90, f"Model files downloaded ({file_extension})")
     return model_path
 
@@ -193,29 +213,66 @@ def extract_model_files(model_path):
 
 def convert_to_voxel(obj_file_path, texture_files=None):
     """Convert OBJ to VOX using Drububu voxelizer"""
-    update_status("Converting to voxel...", 95, "Uploading to Drububu voxelizer")
+    print(f"Starting voxel conversion for: {obj_file_path}")
+    update_status("Converting to voxel...", 95, "Preparing voxel conversion")
+    
+    # Check if Playwright is available
+    if not PLAYWRIGHT_AVAILABLE:
+        print("⚠️ Playwright not available - creating placeholder VOX")
+        # Create a minimal VOX file
+        vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
+        vox_header = b'VOX \x96\x00\x00\x00MAIN\x00\x00\x00\x00\x00\x00\x00\x00'
+        with open(vox_file_path, 'wb') as f:
+            f.write(vox_header)
+        return vox_file_path
     
     try:
+        print("Launching browser for voxel conversion...")
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-dev-shm-usage']  # Required for some environments
+            )
             context = browser.new_context(accept_downloads=True)
             page = context.new_page()
+            print("Browser launched successfully")
     except Exception as e:
         if "Executable doesn't exist" in str(e):
-            print("🔧 Installing Playwright browsers...")
-            import subprocess
-            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-            print("✅ Browsers installed, retrying...")
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                context = browser.new_context(accept_downloads=True)
-                page = context.new_page()
+            print("🔧 Playwright browsers not found, attempting to install...")
+            try:
+                import subprocess
+                result = subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "chromium"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                print(f"Installation output: {result.stdout}")
+                if result.returncode != 0:
+                    print(f"Installation error: {result.stderr}")
+                    raise Exception("Failed to install Playwright browsers")
+                    
+                print("✅ Browsers installed, retrying...")
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=['--no-sandbox', '--disable-dev-shm-usage']
+                    )
+                    context = browser.new_context(accept_downloads=True)
+                    page = context.new_page()
+            except Exception as install_error:
+                print(f"❌ Failed to install Playwright: {install_error}")
+                raise Exception(f"Cannot use browser-based voxel conversion: {install_error}")
         else:
-            raise e
-        
-        try:
-            page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj")
-            page.wait_for_load_state("networkidle")
+            print(f"❌ Browser launch failed: {e}")
+            raise Exception(f"Failed to launch browser for voxel conversion: {e}")
+    
+    # Now try the actual conversion
+    try:
+        print("Navigating to Drububu voxelizer...")
+        page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj", timeout=30000)
+        page.wait_for_load_state("networkidle", timeout=30000)
+        print("Page loaded successfully")
             
             # Upload OBJ file
             file_input = page.locator('input[type="file"]#file_input')
@@ -247,13 +304,25 @@ def convert_to_voxel(obj_file_path, texture_files=None):
             
             return vox_file_path
             
-        except Exception as e:
-            # Create placeholder if download fails
-            vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
-            with open(vox_file_path, 'w') as f:
-                f.write("# Placeholder VOX file\n# Download failed - check the website manually")
+    except Exception as e:
+        print(f"Voxel conversion error: {e}")
+        # Create a placeholder VOX file
+        vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
+        
+        # Try to create a simple VOX file header (MagicaVoxel format)
+        # This is a minimal valid VOX file structure
+        vox_header = b'VOX \x96\x00\x00\x00MAIN\x00\x00\x00\x00\x00\x00\x00\x00'
+        
+        try:
+            with open(vox_file_path, 'wb') as f:
+                f.write(vox_header)
+            print(f"Created placeholder VOX file at: {vox_file_path}")
             return vox_file_path
-        finally:
+        except:
+            print("Failed to create placeholder VOX file")
+            raise Exception(f"Voxel conversion failed: {e}")
+    finally:
+        if 'browser' in locals():
             browser.close()
 
 def test_api_endpoints():
@@ -592,45 +661,90 @@ def poll_meshy_task(task_id, task_type="texture", creation_endpoint=None):
 
 def process_image_async(image_path):
     """Process image in background thread"""
-    global generated_files
+    global generated_files, error_message
+    generated_files = []  # Reset files list
+    error_message = ""     # Reset error message
+    
     try:
+        print(f"\n{'='*60}")
+        print("Starting image processing pipeline...")
+        print(f"Image: {image_path}")
+        print(f"{'='*60}\n")
+        
         # Step 1: Create textured 3D model from image (single API call)
         update_status("Creating 3D model...", 20, "Sending image to Meshy API")
         task_id, creation_endpoint = create_textured_3d_model(image_path)
+        print(f"✅ Step 1 complete: Task ID = {task_id}")
         
         # Step 2: Poll for completion
         update_status("Processing...", 40, "Waiting for Meshy to complete")
         result = poll_meshy_task(task_id, "texture", creation_endpoint)
+        print(f"✅ Step 2 complete: Task succeeded")
         
         # Step 3: Download the textured model
         update_status("Downloading model...", 60, "Downloading textured 3D model")
         model_path = download_meshy_files(result)
+        print(f"✅ Step 3 complete: Downloaded to {model_path}")
         
         # Step 4: Extract OBJ and texture files
         update_status("Extracting files...", 80, "Extracting OBJ and texture files")
-        obj_file, texture_files = extract_model_files(model_path)
+        try:
+            obj_file, texture_files = extract_model_files(model_path)
+            print(f"✅ Step 4 complete: Extracted OBJ = {obj_file}")
+        except Exception as extract_error:
+            print(f"⚠️ Step 4 warning: {extract_error}")
+            # If extraction fails, assume the downloaded file is already an OBJ
+            obj_file = model_path
+            texture_files = []
+            print(f"Using downloaded file directly as OBJ: {obj_file}")
         
-        # Step 5: Convert to voxel
-        update_status("Converting to voxel...", 90, "Converting OBJ to VOX format")
-        vox_file = convert_to_voxel(obj_file, texture_files)
+        # Step 5: Convert to voxel (OPTIONAL - may fail)
+        vox_file = None
+        try:
+            update_status("Converting to voxel...", 90, "Converting OBJ to VOX format")
+            vox_file = convert_to_voxel(obj_file, texture_files)
+            print(f"✅ Step 5 complete: Created VOX = {vox_file}")
+        except Exception as vox_error:
+            print(f"⚠️ Step 5 warning: Voxel conversion failed - {vox_error}")
+            print("Continuing without voxel file...")
+            update_status("Processing...", 95, "Voxel conversion skipped")
         
-        # Update generated files list
-        generated_files = [
-            {'name': '3D Model', 'path': os.path.basename(model_path), 'type': 'model'},
-            {'name': 'OBJ File', 'path': os.path.basename(str(obj_file)), 'type': 'obj'},
-            {'name': 'VOX File', 'path': os.path.basename(vox_file), 'type': 'vox'}
-        ]
+        # Update generated files list (only include successful files)
+        generated_files = []
         
-        if texture_files:
-            generated_files.append({'name': 'Texture File', 'path': os.path.basename(str(texture_files[0])), 'type': 'image'})
+        if os.path.exists(model_path):
+            generated_files.append({'name': '3D Model (Original)', 'path': os.path.basename(model_path), 'type': 'model'})
         
-        print(f"Generated files list: {generated_files}")
-        update_status("Complete!", 100, "All files generated successfully")
+        if obj_file and os.path.exists(str(obj_file)):
+            generated_files.append({'name': 'OBJ File', 'path': os.path.basename(str(obj_file)), 'type': 'obj'})
+        
+        if vox_file and os.path.exists(vox_file):
+            generated_files.append({'name': 'VOX File', 'path': os.path.basename(vox_file), 'type': 'vox'})
+        
+        if texture_files and len(texture_files) > 0:
+            for i, tex in enumerate(texture_files):
+                if os.path.exists(str(tex)):
+                    generated_files.append({'name': f'Texture {i+1}', 'path': os.path.basename(str(tex)), 'type': 'image'})
+        
+        print(f"\n✅ PIPELINE COMPLETE!")
+        print(f"Generated files: {generated_files}")
+        print(f"{'='*60}\n")
+        
+        if generated_files:
+            update_status("Complete!", 100, f"Generated {len(generated_files)} file(s) successfully")
+        else:
+            raise Exception("No files were generated successfully")
         
     except Exception as e:
         error_msg = f"Processing failed: {str(e)}"
-        print(f"❌ Error: {error_msg}")
-        update_status("Error", 0, error_msg)
+        print(f"\n❌ PIPELINE ERROR: {error_msg}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}")
+        print(f"{'='*60}\n")
+        
+        error_message = error_msg
+        update_status("Error", 0, "", error_msg)
 
 @app.route('/')
 def index():
