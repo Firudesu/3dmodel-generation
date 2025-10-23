@@ -998,10 +998,8 @@ if __name__ == '__main__':
     print("Starting Flask app...")
     setup_directories()
     print("Directories created, starting server...")
-    
-    # Get port from environment variable (for Render) or default to 5000
+    # Get port from environment variable (for Render) or use 5000 as default
     port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV') == 'development'
-    
-    print(f"Starting server on port {port} (debug={debug})")
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    # Set debug to False in production
+    debug_mode = os.environ.get('DEBUG', 'False').lower() == 'true'
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
