@@ -294,9 +294,8 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         
         print("Using Python voxel converter...")
         
-        # Convert with reasonable voxel resolution
-        voxel_size = 64  # 64x64x64 voxel grid
-        result_path = convert_obj_to_vox(obj_file_path, vox_file_path, voxel_size)
+        # Convert with auto-calculated dimensions based on OBJ file
+        result_path = convert_obj_to_vox(obj_file_path, vox_file_path)
         
         print(f"✅ Successfully converted to VOX: {result_path}")
         return result_path
@@ -383,7 +382,7 @@ def convert_with_playwright(obj_file_path, texture_files, vox_file_path):
     
     # Now try the actual conversion
     try:
-        print("Navigating to Drububu voxelizer...")
+        print("Navigating to voxelizer website...")
         page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj", timeout=30000)
         page.wait_for_load_state("networkidle", timeout=30000)
         print("Page loaded successfully")
@@ -976,7 +975,7 @@ def manual_voxel_convert():
             return jsonify({
                 'success': True,
                 'vox_file': os.path.basename(vox_path),
-                'message': 'Basic VOX file created. For full conversion, use Drububu website.'
+                'message': 'Basic VOX file created.'
             })
         except Exception as e:
             # Even if it fails, try to create a basic VOX

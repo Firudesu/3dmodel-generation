@@ -1,6 +1,6 @@
 # Image → 3D Model → Voxel File Automation
 
-A web-based application that automates the conversion of images to 3D models using Meshy API, then converts them to voxel files using the Drububu voxelizer.
+A web-based application that automates the conversion of images to 3D models using Meshy API, then converts them to voxel files.
 
 ## 🌐 **Web Interface Features**
 
@@ -89,7 +89,7 @@ project/
 ## Features
 
 - ✅ Automated Meshy API integration
-- ✅ Playwright browser automation for Drububu voxelizer
+- ✅ Playwright browser automation for web-based voxelizer
 - ✅ Progress messages and error handling
 - ✅ Organized output file structure
 - ✅ Works in web-based IDEs (Replit, GitHub Codespaces)
@@ -97,5 +97,5 @@ project/
 ## Notes
 
 - The script uses Meshy's preview mode for faster generation
-- Browser automation handles the Drububu voxelizer upload/download
+- Browser automation handles the web-based voxelizer upload/download
 - All files are automatically organized in the output directory
