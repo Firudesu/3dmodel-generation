@@ -293,11 +293,11 @@
                 <ol>
                     <li>Extract the ZIP file you downloaded from the left panel</li>
                     <li>Upload the OBJ file below</li>
-                    <li>Upload the texture file (optional - for preview only)</li>
+                    <li>Upload the texture file (PNG/JPG) to apply colors to voxels</li>
                     <li>Click "Convert to Voxel"</li>
-                    <li>Download your VOX file (64x64x64 voxel resolution)</li>
+                    <li>Download your VOX file (automatically sized based on model)</li>
                 </ol>
-                <p><strong>Note:</strong> This converts your 3D model into actual voxels that can be edited in MagicaVoxel!</p>
+                <p><strong>Note:</strong> The voxel dimensions are automatically calculated based on your model's proportions. Texture colors will be applied to the voxels if provided!</p>
             </div>
             
             <div class="upload-area" id="uploadAreaObj">
@@ -310,8 +310,8 @@
             <div class="upload-area" id="uploadAreaTexture">
                 <div class="upload-icon">🎨</div>
                 <p><strong>Drop texture file here (optional)</strong></p>
-                <p style="color: #999; font-size: 14px;">JPG, PNG, or MTL file</p>
-                <input type="file" id="textureInput" accept=".jpg,.jpeg,.png,.mtl">
+                <p style="color: #999; font-size: 14px;">PNG or JPG file for applying colors to voxels</p>
+                <input type="file" id="textureInput" accept=".jpg,.jpeg,.png">
             </div>
             
             <button class="btn btn-secondary" id="convertBtn" disabled>🔧 Convert to Voxel</button>
@@ -335,15 +335,15 @@
             </div>
             
             <div class="instructions" style="margin-top: 20px;">
-                <h3>💡 Alternative Method:</h3>
-                <p>You can also use the <a href="https://drububu.com/miscellaneous/voxelizer/" target="_blank" style="color: #667eea;">Drububu Voxelizer</a> directly:</p>
-                <ol>
-                    <li>Visit the website</li>
-                    <li>Upload your OBJ file</li>
-                    <li>Upload texture (if available)</li>
-                    <li>Adjust settings as needed</li>
-                    <li>Download the VOX file</li>
-                </ol>
+                <h3>💡 Features:</h3>
+                <ul style="list-style: none; padding: 0;">
+                    <li>✅ Automatic voxel sizing based on model dimensions</li>
+                    <li>✅ Texture color mapping to voxels</li>
+                    <li>✅ Interior filling for solid models</li>
+                    <li>✅ Compatible with MagicaVoxel editor</li>
+                    <li>✅ Preserves model proportions</li>
+                </ul>
+                <p style="margin-top: 10px;"><strong>Tip:</strong> For best results, use a PNG texture file with clear colors that match your model's UV mapping.</p>
             </div>
         </div>
     </div>
@@ -585,14 +585,14 @@
                     }, 500);
                 } else {
                     // Conversion failed
-                    voxelStatus.textContent = result.message || 'Conversion failed. Please use the Drububu website directly.';
+                    voxelStatus.textContent = result.error || result.message || 'Conversion failed. Please check your files and try again.';
                     voxelProgressFill.style.width = '0%';
                     convertBtn.disabled = false;
                     
                     // Show error and reset after 3 seconds
                     setTimeout(() => {
                         voxelProgress.style.display = 'none';
-                        alert(result.message || 'Voxel conversion failed. Please use the Drububu website directly.');
+                        alert(result.error || result.message || 'Voxel conversion failed. Please check your OBJ file format and try again.');
                     }, 3000);
                 }
             } catch (error) {
