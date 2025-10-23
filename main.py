@@ -4,7 +4,7 @@ Image → 3D Model → Voxel File Automation
 
 This script automates the process of:
 1. Converting an image to a 3D model using Meshy API
-2. Converting the 3D model to a voxel file using Drububu voxelizer
+2. Converting the 3D model to a voxel file
 
 Setup:
 pip install requests playwright
@@ -316,8 +316,8 @@ def extract_model_files(model_path):
     return obj_file, texture_files
 
 def convert_to_voxel(obj_file_path, texture_files=None):
-    """Use Playwright to convert OBJ to VOX using Drububu voxelizer"""
-    print("🔄 Converting OBJ to VOX using Drububu voxelizer...")
+    """Use Playwright to convert OBJ to VOX using web-based voxelizer"""
+    print("🔄 Converting OBJ to VOX using web-based voxelizer...")
     
     with sync_playwright() as p:
         # Launch browser with download handling
@@ -326,8 +326,8 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         page = context.new_page()
         
         try:
-            # Navigate to Drububu voxelizer
-            print("  Opening Drububu voxelizer...")
+            # Navigate to voxelizer website
+            print("  Opening voxelizer website...")
             page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj")
             
             # Wait for page to load
@@ -466,7 +466,7 @@ def main():
             model_path = download_meshy_files(retexture_result)
             obj_file, texture_files = extract_model_files(model_path)
         
-        # Step 4: Convert to voxel with Drububu
+        # Step 4: Convert to voxel
         print("\n🎲 Step 4: Converting to voxel format")
         vox_file = convert_to_voxel(obj_file, texture_files)
         
