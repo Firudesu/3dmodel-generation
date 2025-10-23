@@ -869,6 +869,10 @@ def download_file(filename):
         print(f"Looking for file at: {file_path}")
         print(f"File exists: {os.path.exists(file_path)}")
         
+        # Also list what's actually in the output folder for debugging
+        output_files = os.listdir(app.config['OUTPUT_FOLDER']) if os.path.exists(app.config['OUTPUT_FOLDER']) else []
+        print(f"Files in output folder: {output_files}")
+        
         if os.path.exists(file_path):
             # Determine MIME type based on extension
             file_ext = os.path.splitext(filename)[1].lower()
