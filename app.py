@@ -91,28 +91,34 @@ def download_meshy_files(result):
     model_url = None
     file_type = None
     
-    # Check for OBJ files first
+    # Check for model URLs - Meshy returns different formats
     if 'model_urls' in result:
         model_urls = result['model_urls']
         print(f"Available model formats: {list(model_urls.keys())}")
         
+        # Prioritize OBJ format as it comes with textures in a ZIP
         if 'obj' in model_urls:
             model_url = model_urls['obj']
             file_type = 'obj'
+            print("✅ Found OBJ format (should be ZIP with textures)")
         elif 'glb' in model_urls:
             model_url = model_urls['glb']
             file_type = 'glb'
+            print("Found GLB format")
         elif 'fbx' in model_urls:
             model_url = model_urls['fbx']
             file_type = 'fbx'
+            print("Found FBX format")
         elif 'usdz' in model_urls:
             model_url = model_urls['usdz']
             file_type = 'usdz'
+            print("Found USDZ format")
         else:
             # Take the first available format
             first_format = list(model_urls.keys())[0]
             model_url = model_urls[first_format]
             file_type = first_format
+            print(f"Using first available format: {first_format}")
     
     # Fallback to direct model_url
     if not model_url:
@@ -140,16 +146,19 @@ def download_meshy_files(result):
     
     # Detect file type from URL or content
     content_type = response.headers.get('content-type', '')
-    file_extension = '.zip'  # Default
     
-    if 'obj' in model_url or 'text/plain' in content_type:
-        file_extension = '.obj'
+    # For OBJ format from Meshy, it's usually a ZIP containing OBJ + textures
+    if file_type == 'obj':
+        file_extension = '.zip'
+        print("OBJ format detected - expecting ZIP with textures")
+    elif 'zip' in model_url or 'application/zip' in content_type:
+        file_extension = '.zip'
     elif 'glb' in model_url or 'application/octet-stream' in content_type:
         file_extension = '.glb'
     elif 'fbx' in model_url:
         file_extension = '.fbx'
-    elif 'zip' in model_url or 'application/zip' in content_type:
-        file_extension = '.zip'
+    else:
+        file_extension = '.zip'  # Default to ZIP
     
     # Save with appropriate extension
     os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)  # Ensure output folder exists
@@ -166,50 +175,51 @@ def download_meshy_files(result):
     return model_path
 
 def extract_model_files(model_path):
-    """Process downloaded model files and extract OBJ"""
+    """Process downloaded model files - keep ZIP intact for user download"""
     print(f"Processing model file: {model_path}")
     
     model_file = Path(model_path)
     file_extension = model_file.suffix.lower()
     
     if file_extension == '.zip':
-        # Extract ZIP file and look for OBJ
-        extract_dir = os.path.join(app.config['OUTPUT_FOLDER'], 'meshy_extracted')
-        os.makedirs(extract_dir, exist_ok=True)
+        # Don't extract - keep the ZIP for user to download
+        print(f"✅ ZIP file with model and textures: {model_file}")
         
+        # Just peek inside to see what's there
         try:
             with zipfile.ZipFile(model_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-            # Look for OBJ files in the extracted content
-            obj_files = list(Path(extract_dir).glob("**/*.obj"))
-            texture_files = list(Path(extract_dir).glob("**/*.jpg")) + list(Path(extract_dir).glob("**/*.png"))
-            
-            if obj_files:
-                print(f"✅ Found OBJ file in ZIP: {obj_files[0]}")
-                return obj_files[0], texture_files
-            else:
-                print("❌ No OBJ file found in ZIP")
-                # List what files we actually got
-                all_files = list(Path(extract_dir).glob("**/*"))
-                print(f"Files in ZIP: {[f.name for f in all_files if f.is_file()]}")
-                raise Exception("No OBJ file found in downloaded ZIP")
+                file_list = zip_ref.namelist()
+                print(f"ZIP contents: {file_list}")
+                
+                obj_files = [f for f in file_list if f.endswith('.obj')]
+                texture_files = [f for f in file_list if f.endswith(('.jpg', '.png', '.mtl'))]
+                
+                if obj_files:
+                    print(f"✅ Found {len(obj_files)} OBJ file(s) in ZIP")
+                if texture_files:
+                    print(f"✅ Found {len(texture_files)} texture/material file(s) in ZIP")
+                
+                # Return the ZIP itself as the main file
+                return model_file, []  # Return empty texture list since they're in the ZIP
                 
         except zipfile.BadZipFile:
             print("❌ File is not a valid ZIP file")
-            raise Exception("Downloaded file is not a valid ZIP file")
+            # Still return it as-is
+            return model_file, []
+    
+    elif file_extension in ['.glb', '.fbx', '.usdz']:
+        # These formats have embedded textures
+        print(f"✅ {file_extension.upper()} file with embedded textures: {model_file}")
+        return model_file, []
     
     elif file_extension == '.obj':
-        # Already an OBJ file - perfect!
-        print(f"✅ Direct OBJ file: {model_file}")
-        texture_files = list(Path(app.config['OUTPUT_FOLDER']).glob("texture_*.png"))
-        return model_file, texture_files
+        # Standalone OBJ - might not have textures
+        print(f"⚠️ Standalone OBJ file (no textures): {model_file}")
+        return model_file, []
     
     else:
-        # Other formats (GLB, FBX, etc.) - we need to convert or get OBJ
-        print(f"❌ Got {file_extension} file, but we need OBJ for voxel conversion")
-        print("This format cannot be directly converted to VOX")
-        raise Exception(f"Meshy returned {file_extension} format, but OBJ is required for voxel conversion. Please try a different image or check Meshy API settings.")
+        print(f"Unknown format {file_extension}: {model_file}")
+        return model_file, []
 
 def convert_to_voxel(obj_file_path, texture_files=None):
     """Convert OBJ to VOX using Drububu voxelizer"""
@@ -698,33 +708,28 @@ def process_image_async(image_path):
             texture_files = []
             print(f"Using downloaded file directly as OBJ: {obj_file}")
         
-        # Step 5: Convert to voxel (OPTIONAL - may fail)
-        vox_file = None
-        try:
-            update_status("Converting to voxel...", 90, "Converting OBJ to VOX format")
-            vox_file = convert_to_voxel(obj_file, texture_files)
-            print(f"✅ Step 5 complete: Created VOX = {vox_file}")
-        except Exception as vox_error:
-            print(f"⚠️ Step 5 warning: Voxel conversion failed - {vox_error}")
-            print("Continuing without voxel file...")
-            update_status("Processing...", 95, "Voxel conversion skipped")
+        # Step 5: Skip automatic voxel conversion (user will do it manually)
+        print("ℹ️ Step 5: Skipping automatic voxel conversion (manual process)")
+        update_status("Processing...", 95, "Preparing files for download")
         
-        # Update generated files list (only include successful files)
+        # Update generated files list
         generated_files = []
         
+        # The main download should be the ZIP file with everything
         if os.path.exists(model_path):
-            generated_files.append({'name': '3D Model (Original)', 'path': os.path.basename(model_path), 'type': 'model'})
-        
-        if obj_file and os.path.exists(str(obj_file)):
-            generated_files.append({'name': 'OBJ File', 'path': os.path.basename(str(obj_file)), 'type': 'obj'})
-        
-        if vox_file and os.path.exists(vox_file):
-            generated_files.append({'name': 'VOX File', 'path': os.path.basename(vox_file), 'type': 'vox'})
-        
-        if texture_files and len(texture_files) > 0:
-            for i, tex in enumerate(texture_files):
-                if os.path.exists(str(tex)):
-                    generated_files.append({'name': f'Texture {i+1}', 'path': os.path.basename(str(tex)), 'type': 'image'})
+            file_ext = Path(model_path).suffix.lower()
+            if file_ext == '.zip':
+                generated_files.append({
+                    'name': '3D Model Package (ZIP)', 
+                    'path': os.path.basename(model_path), 
+                    'type': 'ZIP'
+                })
+            else:
+                generated_files.append({
+                    'name': f'3D Model ({file_ext.upper()})', 
+                    'path': os.path.basename(model_path), 
+                    'type': file_ext.replace('.', '').upper()
+                })
         
         print(f"\n✅ PIPELINE COMPLETE!")
         print(f"Generated files: {generated_files}")
@@ -801,7 +806,22 @@ def download_file(filename):
         # Check if file exists in output folder
         file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
         if os.path.exists(file_path):
-            return send_file(file_path, as_attachment=True)
+            # Determine MIME type based on extension
+            file_ext = os.path.splitext(filename)[1].lower()
+            if file_ext == '.zip':
+                mimetype = 'application/zip'
+            elif file_ext == '.obj':
+                mimetype = 'text/plain'
+            elif file_ext == '.mtl':
+                mimetype = 'text/plain'
+            elif file_ext in ['.jpg', '.jpeg']:
+                mimetype = 'image/jpeg'
+            elif file_ext == '.png':
+                mimetype = 'image/png'
+            else:
+                mimetype = 'application/octet-stream'
+            
+            return send_file(file_path, as_attachment=True, mimetype=mimetype)
         
         # Check if file exists in uploads folder
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -816,6 +836,42 @@ def download_file(filename):
         return "File not found", 404
     except Exception as e:
         return f"Download error: {str(e)}", 500
+
+@app.route('/convert/manual', methods=['POST'])
+def manual_voxel_convert():
+    """Handle manual voxel conversion"""
+    try:
+        if 'obj_file' not in request.files:
+            return jsonify({'error': 'No OBJ file provided'}), 400
+        
+        obj_file = request.files['obj_file']
+        texture_file = request.files.get('texture_file')
+        
+        # Save uploaded files
+        obj_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(obj_file.filename))
+        obj_file.save(obj_path)
+        
+        texture_path = None
+        if texture_file:
+            texture_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(texture_file.filename))
+            texture_file.save(texture_path)
+        
+        # Try to convert to voxel
+        try:
+            vox_path = convert_to_voxel(obj_path, [texture_path] if texture_path else None)
+            return jsonify({
+                'success': True,
+                'vox_file': os.path.basename(vox_path)
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e),
+                'message': 'Voxel conversion failed. Please use the Drububu website directly.'
+            })
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("Starting Flask app...")
