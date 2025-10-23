@@ -315,28 +315,28 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         print("Creating fallback VOX file...")
         
         # Create basic VOX structure as fallback
-            print("Creating basic VOX file as fallback...")
-            vox_data = bytearray()
-            vox_data.extend(b'VOX ')  
-            vox_data.extend((150).to_bytes(4, 'little'))
-            vox_data.extend(b'MAIN')
-            vox_data.extend((0).to_bytes(4, 'little'))
-            vox_data.extend((28 + 12 + 12).to_bytes(4, 'little'))
-            vox_data.extend(b'SIZE')
-            vox_data.extend((12).to_bytes(4, 'little'))
-            vox_data.extend((0).to_bytes(4, 'little'))
-            vox_data.extend((32).to_bytes(4, 'little'))
-            vox_data.extend((32).to_bytes(4, 'little'))
-            vox_data.extend((32).to_bytes(4, 'little'))
-            vox_data.extend(b'XYZI')
-            vox_data.extend((4).to_bytes(4, 'little'))
-            vox_data.extend((0).to_bytes(4, 'little'))
-            vox_data.extend((0).to_bytes(4, 'little'))
-            
-            with open(vox_file_path, 'wb') as f:
-                f.write(vox_data)
-            
-            return vox_file_path
+        print("Creating basic VOX file as fallback...")
+        vox_data = bytearray()
+        vox_data.extend(b'VOX ')  
+        vox_data.extend((150).to_bytes(4, 'little'))
+        vox_data.extend(b'MAIN')
+        vox_data.extend((0).to_bytes(4, 'little'))
+        vox_data.extend((28 + 12 + 12).to_bytes(4, 'little'))
+        vox_data.extend(b'SIZE')
+        vox_data.extend((12).to_bytes(4, 'little'))
+        vox_data.extend((0).to_bytes(4, 'little'))
+        vox_data.extend((32).to_bytes(4, 'little'))
+        vox_data.extend((32).to_bytes(4, 'little'))
+        vox_data.extend((32).to_bytes(4, 'little'))
+        vox_data.extend(b'XYZI')
+        vox_data.extend((4).to_bytes(4, 'little'))
+        vox_data.extend((0).to_bytes(4, 'little'))
+        vox_data.extend((0).to_bytes(4, 'little'))
+        
+        with open(vox_file_path, 'wb') as f:
+            f.write(vox_data)
+        
+        return vox_file_path
             
     except Exception as e:
         print(f"❌ Voxel conversion error: {e}")
