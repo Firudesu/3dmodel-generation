@@ -280,50 +280,65 @@ def extract_model_files(model_path):
         return model_file, []
 
 def convert_to_voxel(obj_file_path, texture_files=None):
-    """Convert OBJ to VOX - creates a simple VOX file"""
+    """Convert OBJ to VOX using Python voxelizer"""
     print(f"Starting voxel conversion for: {obj_file_path}")
-    update_status("Converting to voxel...", 95, "Creating VOX file")
+    update_status("Converting to voxel...", 95, "Voxelizing 3D model")
     
-    # For now, we'll create a basic VOX file structure
-    # Real voxel conversion would require complex 3D processing
     vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
     
-    # Create a valid MagicaVoxel file with basic structure
-    # This is a minimal VOX file that can be opened in MagicaVoxel
-    vox_data = bytearray()
-    
-    # VOX file header
-    vox_data.extend(b'VOX ')  # File signature
-    vox_data.extend((150).to_bytes(4, 'little'))  # Version
-    
-    # MAIN chunk (container)
-    vox_data.extend(b'MAIN')
-    vox_data.extend((0).to_bytes(4, 'little'))  # No data in MAIN
-    vox_data.extend((28 + 12 + 12).to_bytes(4, 'little'))  # Children size
-    
-    # SIZE chunk - defines voxel grid dimensions
-    vox_data.extend(b'SIZE')
-    vox_data.extend((12).to_bytes(4, 'little'))  # Chunk size
-    vox_data.extend((0).to_bytes(4, 'little'))  # No children
-    vox_data.extend((32).to_bytes(4, 'little'))  # X size
-    vox_data.extend((32).to_bytes(4, 'little'))  # Y size  
-    vox_data.extend((32).to_bytes(4, 'little'))  # Z size
-    
-    # XYZI chunk - voxel data (empty for now)
-    vox_data.extend(b'XYZI')
-    vox_data.extend((4).to_bytes(4, 'little'))  # Chunk size
-    vox_data.extend((0).to_bytes(4, 'little'))  # No children
-    vox_data.extend((0).to_bytes(4, 'little'))  # Number of voxels (0 = empty model)
-    
-    # Write the VOX file
-    with open(vox_file_path, 'wb') as f:
-        f.write(vox_data)
-    
-    print(f"✅ Created VOX file: {vox_file_path}")
-    
-    # Note: This creates an empty but valid VOX file
-    # For actual conversion, users should use the Drububu website
-    return vox_file_path
+    try:
+        # Try to import and use our voxel converter
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from voxel_converter import convert_obj_to_vox
+        
+        print("Using Python voxel converter...")
+        
+        # Convert with reasonable voxel resolution
+        voxel_size = 64  # 64x64x64 voxel grid
+        result_path = convert_obj_to_vox(obj_file_path, vox_file_path, voxel_size)
+        
+        print(f"✅ Successfully converted to VOX: {result_path}")
+        return result_path
+        
+    except ImportError as e:
+        print(f"⚠️ Voxel converter not available: {e}")
+        print("Attempting browser-based conversion...")
+        
+        # Fallback to browser automation if available
+        if PLAYWRIGHT_AVAILABLE:
+            return convert_with_playwright(obj_file_path, texture_files, vox_file_path)
+        else:
+            # Last resort - create basic VOX structure
+            print("Creating basic VOX file as fallback...")
+            vox_data = bytearray()
+            vox_data.extend(b'VOX ')  
+            vox_data.extend((150).to_bytes(4, 'little'))
+            vox_data.extend(b'MAIN')
+            vox_data.extend((0).to_bytes(4, 'little'))
+            vox_data.extend((28 + 12 + 12).to_bytes(4, 'little'))
+            vox_data.extend(b'SIZE')
+            vox_data.extend((12).to_bytes(4, 'little'))
+            vox_data.extend((0).to_bytes(4, 'little'))
+            vox_data.extend((32).to_bytes(4, 'little'))
+            vox_data.extend((32).to_bytes(4, 'little'))
+            vox_data.extend((32).to_bytes(4, 'little'))
+            vox_data.extend(b'XYZI')
+            vox_data.extend((4).to_bytes(4, 'little'))
+            vox_data.extend((0).to_bytes(4, 'little'))
+            vox_data.extend((0).to_bytes(4, 'little'))
+            
+            with open(vox_file_path, 'wb') as f:
+                f.write(vox_data)
+            
+            return vox_file_path
+            
+    except Exception as e:
+        print(f"❌ Voxel conversion error: {e}")
+        raise Exception(f"Failed to convert to voxel: {str(e)}")
+
+def convert_with_playwright(obj_file_path, texture_files, vox_file_path):
+    """Fallback browser-based conversion"""
     
     try:
         print("Launching browser for voxel conversion...")

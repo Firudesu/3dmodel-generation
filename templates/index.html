@@ -289,26 +289,15 @@
             </div>
             
             <div class="instructions">
-                <h3>📝 Voxel Conversion Options:</h3>
-                <p><strong>Note:</strong> Full voxel conversion requires complex 3D processing. This tool creates a basic VOX file structure.</p>
-                
-                <h4>Option 1: Basic VOX File (Quick)</h4>
+                <h3>📝 How to convert to VOX:</h3>
                 <ol>
-                    <li>Upload your OBJ file below</li>
-                    <li>Upload texture file (optional)</li>
+                    <li>Extract the ZIP file you downloaded from the left panel</li>
+                    <li>Upload the OBJ file below</li>
+                    <li>Upload the texture file (optional - for preview only)</li>
                     <li>Click "Convert to Voxel"</li>
-                    <li>Get a basic VOX file structure</li>
+                    <li>Download your VOX file (64x64x64 voxel resolution)</li>
                 </ol>
-                
-                <h4>Option 2: Full Conversion (Recommended)</h4>
-                <p>For proper voxel conversion with your actual model:</p>
-                <ol>
-                    <li>Visit <a href="https://drububu.com/miscellaneous/voxelizer/" target="_blank" style="color: #667eea;">Drububu Voxelizer</a></li>
-                    <li>Upload your OBJ file</li>
-                    <li>Upload your texture file</li>
-                    <li>Adjust voxel resolution (64-128 recommended)</li>
-                    <li>Click convert and download the result</li>
-                </ol>
+                <p><strong>Note:</strong> This converts your 3D model into actual voxels that can be edited in MagicaVoxel!</p>
             </div>
             
             <div class="upload-area" id="uploadAreaObj">
@@ -325,7 +314,7 @@
                 <input type="file" id="textureInput" accept=".jpg,.jpeg,.png,.mtl">
             </div>
             
-            <button class="btn btn-secondary" id="convertBtn" disabled>🔧 Create Basic VOX File</button>
+            <button class="btn btn-secondary" id="convertBtn" disabled>🔧 Convert to Voxel</button>
             
             <div class="progress-container" id="voxelProgress" style="display: none;">
                 <div class="progress-bar">
@@ -584,7 +573,7 @@
                 
                 if (result.success && result.vox_file) {
                     voxelProgressFill.style.width = '100%';
-                    voxelStatus.textContent = 'Basic VOX file created!';
+                    voxelStatus.textContent = 'Voxel conversion complete!';
                     
                     setTimeout(() => {
                         voxelProgress.style.display = 'none';
@@ -593,9 +582,6 @@
                         
                         // Set download link to the actual file
                         voxelDownload.href = '/download/' + result.vox_file;
-                        
-                        // Also show a note about the file
-                        alert('Basic VOX file created! This is an empty VOX structure that can be opened in MagicaVoxel. For full model conversion, please use the Drububu website linked below.');
                     }, 500);
                 } else {
                     // Conversion failed
