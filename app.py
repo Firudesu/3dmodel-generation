@@ -31,7 +31,7 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['OUTPUT_FOLDER'] = 'output'
 
 # Configuration
-MESHY_API_KEY = "msy_pQhyJ89ykjyGorHDhFJn7NJ2GzPNGMQ4qE77"
+MESHY_API_KEY = os.environ.get('MESHY_API_KEY', "msy_pQhyJ89ykjyGorHDhFJn7NJ2GzPNGMQ4qE77")
 MESHY_BASE_URL = "https://api.meshy.ai"
 
 # Try different API endpoint formats
@@ -998,4 +998,10 @@ if __name__ == '__main__':
     print("Starting Flask app...")
     setup_directories()
     print("Directories created, starting server...")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    
+    # Get port from environment variable (for Render) or default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV') == 'development'
+    
+    print(f"Starting server on port {port} (debug={debug})")
+    app.run(host='0.0.0.0', port=port, debug=debug)
