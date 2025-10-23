@@ -169,6 +169,7 @@ def download_meshy_files(result):
         shutil.rmtree(temp_dir)
         
         print(f"✅ Created ZIP package: {zip_path} ({os.path.getsize(zip_path)} bytes)")
+        print(f"Returning path for generated_files: {zip_path}")
         return zip_path
         
     # For other formats (GLB, FBX, USDZ), download as-is
