@@ -13,7 +13,6 @@ def install_dependencies():
     print("🔄 Installing dependencies...")
     try:
         subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
         print("✓ Dependencies installed")
         return True
     except subprocess.CalledProcessError as e:
@@ -28,7 +27,8 @@ def main():
     # Check if dependencies are installed
     try:
         import requests
-        from playwright.sync_api import sync_playwright
+        import numpy
+        from PIL import Image
         print("✓ Dependencies already installed")
     except ImportError:
         print("📦 Installing dependencies...")
