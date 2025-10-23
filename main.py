@@ -418,7 +418,7 @@ def convert_to_voxel(obj_file_path, texture_files=None):
             # Create a placeholder file if download fails
             vox_file_path = Path(DOWNLOAD_FOLDER) / "model.vox"
             with open(vox_file_path, 'w') as f:
-                f.write("# Placeholder VOX file\n# Download failed - check the website manually")
+                f.write("# Placeholder VOX file\n# Conversion failed - using fallback")
             
         finally:
             browser.close()

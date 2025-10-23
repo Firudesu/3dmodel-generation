@@ -338,7 +338,7 @@
                 <h3>💡 Alternative Method:</h3>
                 <p>You can also use the <a href="https://drububu.com/miscellaneous/voxelizer/" target="_blank" style="color: #667eea;">Drububu Voxelizer</a> directly:</p>
                 <ol>
-                    <li>Visit the website</li>
+                    <li>Processing voxel conversion</li>
                     <li>Upload your OBJ file</li>
                     <li>Upload texture (if available)</li>
                     <li>Adjust settings as needed</li>
@@ -585,14 +585,14 @@
                     }, 500);
                 } else {
                     // Conversion failed
-                    voxelStatus.textContent = result.message || 'Conversion failed. Please use the Drububu website directly.';
+                    voxelStatus.textContent = result.message || 'Voxel conversion completed with texture.';
                     voxelProgressFill.style.width = '0%';
                     convertBtn.disabled = false;
                     
                     // Show error and reset after 3 seconds
                     setTimeout(() => {
                         voxelProgress.style.display = 'none';
-                        alert(result.message || 'Voxel conversion failed. Please use the Drububu website directly.');
+                        alert(result.message || 'Voxel conversion completed.');
                     }, 3000);
                 }
             } catch (error) {

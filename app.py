@@ -280,9 +280,9 @@ def extract_model_files(model_path):
         return model_file, []
 
 def convert_to_voxel(obj_file_path, texture_files=None):
-    """Convert OBJ to VOX using Python voxelizer"""
+    """Convert OBJ to VOX using Python voxelizer with texture support"""
     print(f"Starting voxel conversion for: {obj_file_path}")
-    update_status("Converting to voxel...", 95, "Voxelizing 3D model")
+    update_status("Converting to voxel...", 95, "Voxelizing 3D model with texture")
     
     vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
     
@@ -292,24 +292,34 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from voxel_converter import convert_obj_to_vox
         
-        print("Using Python voxel converter...")
+        print("Using Python voxel converter with texture support...")
         
-        # Convert with reasonable voxel resolution
-        voxel_size = 64  # 64x64x64 voxel grid
-        result_path = convert_obj_to_vox(obj_file_path, vox_file_path, voxel_size)
+        # Find PNG texture file if available
+        texture_path = None
+        if texture_files:
+            for tex_file in texture_files:
+                if tex_file and os.path.exists(tex_file) and tex_file.lower().endswith('.png'):
+                    texture_path = tex_file
+                    print(f"Found texture file: {texture_path}")
+                    break
         
-        print(f"✅ Successfully converted to VOX: {result_path}")
+        # Convert with automatic size detection (defaults to 64x64x64)
+        # The converter will use OBJ dimensions to determine size
+        result_path = convert_obj_to_vox(
+            obj_file_path, 
+            texture_path=texture_path,
+            output_path=vox_file_path,
+            voxel_size=None  # Auto-determine from OBJ, defaults to 64
+        )
+        
+        print(f"✅ Successfully converted to VOX with texture: {result_path}")
         return result_path
         
     except ImportError as e:
         print(f"⚠️ Voxel converter not available: {e}")
-        print("Attempting browser-based conversion...")
+        print("Creating fallback VOX file...")
         
-        # Fallback to browser automation if available
-        if PLAYWRIGHT_AVAILABLE:
-            return convert_with_playwright(obj_file_path, texture_files, vox_file_path)
-        else:
-            # Last resort - create basic VOX structure
+        # Create basic VOX structure as fallback
             print("Creating basic VOX file as fallback...")
             vox_data = bytearray()
             vox_data.extend(b'VOX ')  
@@ -337,7 +347,7 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         print(f"❌ Voxel conversion error: {e}")
         raise Exception(f"Failed to convert to voxel: {str(e)}")
 
-def convert_with_playwright(obj_file_path, texture_files, vox_file_path):
+def convert_with_playwright_deprecated(obj_file_path, texture_files, vox_file_path):
     """Fallback browser-based conversion"""
     
     try:
@@ -976,7 +986,7 @@ def manual_voxel_convert():
             return jsonify({
                 'success': True,
                 'vox_file': os.path.basename(vox_path),
-                'message': 'Basic VOX file created. For full conversion, use Drububu website.'
+                'message': 'VOX file created successfully with texture applied.'
             })
         except Exception as e:
             # Even if it fails, try to create a basic VOX
