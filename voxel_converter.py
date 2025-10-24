@@ -63,7 +63,7 @@ def load_texture(texture_path):
         return None
 
 def get_texture_color(texture_array, u, v):
-    """Sample color from texture at UV coordinates"""
+    """Sample color from texture at UV coordinates with better sampling"""
     if texture_array is None:
         return (128, 128, 128)  # Default gray color
     
@@ -73,15 +73,38 @@ def get_texture_color(texture_array, u, v):
     u = u % 1.0
     v = v % 1.0
     
-    # Convert to pixel coordinates
-    x = int(u * w)
-    y = int((1.0 - v) * h)  # Flip V coordinate
+    # Convert to pixel coordinates with sub-pixel accuracy
+    x = u * (w - 1)
+    y = (1.0 - v) * (h - 1)  # Flip V coordinate
+    
+    # Bilinear sampling for better color accuracy
+    x1 = int(x)
+    y1 = int(y)
+    x2 = min(x1 + 1, w - 1)
+    y2 = min(y1 + 1, h - 1)
     
     # Clamp to array bounds
-    x = max(0, min(x, w - 1))
-    y = max(0, min(y, h - 1))
+    x1 = max(0, min(x1, w - 1))
+    y1 = max(0, min(y1, h - 1))
+    x2 = max(0, min(x2, w - 1))
+    y2 = max(0, min(y2, h - 1))
     
-    return tuple(texture_array[y, x])
+    # Get fractional parts
+    fx = x - x1
+    fy = y - y1
+    
+    # Sample four corners
+    c11 = texture_array[y1, x1]
+    c12 = texture_array[y2, x1]
+    c21 = texture_array[y1, x2]
+    c22 = texture_array[y2, x2]
+    
+    # Bilinear interpolation
+    c1 = c11 * (1 - fx) + c21 * fx
+    c2 = c12 * (1 - fx) + c22 * fx
+    result = c1 * (1 - fy) + c2 * fy
+    
+    return tuple(result.astype(int))
 
 def calculate_voxel_size_from_obj(vertices):
     """Calculate appropriate voxel size based on OBJ dimensions"""
@@ -146,11 +169,12 @@ def voxelize_mesh(vertices, faces, texture_coords, face_textures, texture_array,
         # Get texture coordinates if available
         face_color = (128, 128, 128)  # Default gray
         if texture_array is not None and face_idx < len(face_textures) and face_textures[face_idx]:
-            # Calculate average UV for the face
+            # Sample multiple points on the face for better color representation
             face_tex = face_textures[face_idx]
             if texture_coords and face_tex:
                 uvs = [texture_coords[tex_idx] for tex_idx in face_tex if tex_idx < len(texture_coords)]
                 if uvs:
+                    # Sample center of face
                     avg_u = np.mean([uv[0] for uv in uvs])
                     avg_v = np.mean([uv[1] for uv in uvs])
                     face_color = get_texture_color(texture_array, avg_u, avg_v)
@@ -167,7 +191,56 @@ def voxelize_mesh(vertices, faces, texture_coords, face_textures, texture_array,
             for y in range(min_v[1], min(max_v[1] + 1, voxel_size)):
                 for z in range(min_v[2], min(max_v[2] + 1, voxel_size)):
                     voxel_grid[x, y, z] = True
-                    voxel_colors[(x, y, z)] = face_color
+                    
+                    # Sample texture color for this specific voxel position
+                    if texture_array is not None and face_idx < len(face_textures) and face_textures[face_idx]:
+                        face_tex = face_textures[face_idx]
+                        if texture_coords and face_tex:
+                            # Interpolate UV coordinates for this voxel position
+                            voxel_pos = np.array([x, y, z])
+                            
+                            # Find barycentric coordinates within the face
+                            v0, v1, v2 = face_verts
+                            v0_vox, v1_vox, v2_vox = voxel_verts
+                            
+                            # Calculate barycentric coordinates
+                            denom = (v1_vox[1] - v2_vox[1]) * (v0_vox[0] - v2_vox[0]) + (v2_vox[0] - v1_vox[0]) * (v0_vox[1] - v2_vox[1])
+                            if abs(denom) > 1e-10:
+                                a = ((v1_vox[1] - v2_vox[1]) * (voxel_pos[0] - v2_vox[0]) + (v2_vox[0] - v1_vox[0]) * (voxel_pos[1] - v2_vox[1])) / denom
+                                b = ((v2_vox[1] - v0_vox[1]) * (voxel_pos[0] - v2_vox[0]) + (v0_vox[0] - v2_vox[0]) * (voxel_pos[1] - v2_vox[1])) / denom
+                                c = 1 - a - b
+                                
+                                # Clamp to valid range
+                                a = max(0, min(1, a))
+                                b = max(0, min(1, b))
+                                c = max(0, min(1, c))
+                                
+                                # Normalize
+                                total = a + b + c
+                                if total > 0:
+                                    a /= total
+                                    b /= total
+                                    c /= total
+                                
+                                # Interpolate UV coordinates
+                                if len(face_tex) >= 3:
+                                    uv0 = texture_coords[face_tex[0]]
+                                    uv1 = texture_coords[face_tex[1]]
+                                    uv2 = texture_coords[face_tex[2]]
+                                    
+                                    u = a * uv0[0] + b * uv1[0] + c * uv2[0]
+                                    v = a * uv0[1] + b * uv1[1] + c * uv2[1]
+                                    
+                                    voxel_color = get_texture_color(texture_array, u, v)
+                                    voxel_colors[(x, y, z)] = voxel_color
+                                else:
+                                    voxel_colors[(x, y, z)] = face_color
+                            else:
+                                voxel_colors[(x, y, z)] = face_color
+                        else:
+                            voxel_colors[(x, y, z)] = face_color
+                    else:
+                        voxel_colors[(x, y, z)] = face_color
     
     # Fill interior (flood fill from edges to find exterior, then invert)
     filled = flood_fill_exterior(voxel_grid)
@@ -220,32 +293,45 @@ def flood_fill_exterior(voxel_grid):
     # Combine boundary and interior
     return voxel_grid | interior
 
-def rgb_to_palette_index(r, g, b, palette=None):
-    """Convert RGB color to VOX palette index"""
-    # For now, use a simple color quantization
-    # VOX uses a 256 color palette, we'll map to closest basic colors
+def rgb_to_palette_index(r, g, b, palette_colors=None):
+    """Convert RGB color to VOX palette index using actual texture colors"""
+    if palette_colors is None:
+        # Fallback to simple mapping if no palette provided
+        if r > 200 and g > 200 and b > 200:
+            return 1   # White
+        elif r > 200 and g < 100 and b < 100:
+            return 2   # Red
+        elif r < 100 and g > 200 and b < 100:
+            return 3   # Green
+        elif r < 100 and g < 100 and b > 200:
+            return 4   # Blue
+        elif r > 200 and g > 200 and b < 100:
+            return 5   # Yellow
+        elif r > 200 and g < 100 and b > 200:
+            return 6   # Magenta
+        elif r < 100 and g > 200 and b > 200:
+            return 7   # Cyan
+        elif r < 50 and g < 50 and b < 50:
+            return 8   # Black
+        else:
+            # Default gray based on brightness
+            brightness = (r + g + b) // 3
+            return 9 + (brightness // 32)  # Maps to indices 9-16
     
-    # Simple palette mapping (can be improved)
-    if r > 200 and g > 200 and b > 200:
-        return 1   # White
-    elif r > 200 and g < 100 and b < 100:
-        return 2   # Red
-    elif r < 100 and g > 200 and b < 100:
-        return 3   # Green
-    elif r < 100 and g < 100 and b > 200:
-        return 4   # Blue
-    elif r > 200 and g > 200 and b < 100:
-        return 5   # Yellow
-    elif r > 200 and g < 100 and b > 200:
-        return 6   # Magenta
-    elif r < 100 and g > 200 and b > 200:
-        return 7   # Cyan
-    elif r < 50 and g < 50 and b < 50:
-        return 8   # Black
-    else:
-        # Default gray based on brightness
-        brightness = (r + g + b) // 3
-        return 9 + (brightness // 32)  # Maps to indices 9-16
+    # Find closest color in palette
+    target_color = np.array([r, g, b])
+    min_distance = float('inf')
+    best_index = 1  # Default to white
+    
+    for i, palette_color in enumerate(palette_colors):
+        if i == 0:  # Skip transparent
+            continue
+        distance = np.linalg.norm(np.array(palette_color[:3]) - target_color)
+        if distance < min_distance:
+            min_distance = distance
+            best_index = i
+    
+    return best_index
 
 def create_vox_file(voxel_grid, voxel_colors, output_path):
     """Create a VOX file from voxel grid with colors"""
@@ -254,6 +340,9 @@ def create_vox_file(voxel_grid, voxel_colors, output_path):
     # Get voxel positions
     voxel_positions = np.argwhere(voxel_grid)
     num_voxels = len(voxel_positions)
+    
+    # Generate palette from actual texture colors
+    palette_colors = generate_palette_from_colors(voxel_colors)
     
     with open(output_path, 'wb') as f:
         # VOX header
@@ -292,7 +381,7 @@ def create_vox_file(voxel_grid, voxel_colors, output_path):
         for pos in voxel_positions:
             x, y, z = pos
             color = voxel_colors.get((x, y, z), (128, 128, 128))
-            palette_idx = rgb_to_palette_index(*color)
+            palette_idx = rgb_to_palette_index(*color, palette_colors)
             f.write(struct.pack('BBBB', x, y, z, palette_idx))
         
         # RGBA chunk (palette)
@@ -300,37 +389,85 @@ def create_vox_file(voxel_grid, voxel_colors, output_path):
         f.write(struct.pack('<I', rgba_chunk_size))
         f.write(struct.pack('<I', 0))  # No children
         
-        # Write default palette
-        default_palette = [
-            (0, 0, 0, 0),        # 0: Transparent
-            (255, 255, 255, 255), # 1: White
-            (255, 0, 0, 255),     # 2: Red
-            (0, 255, 0, 255),     # 3: Green
-            (0, 0, 255, 255),     # 4: Blue
-            (255, 255, 0, 255),   # 5: Yellow
-            (255, 0, 255, 255),   # 6: Magenta
-            (0, 255, 255, 255),   # 7: Cyan
-            (0, 0, 0, 255),       # 8: Black
-        ]
-        
-        # Add gray scale
-        for i in range(9, 17):
-            gray = ((i - 9) * 32)
-            default_palette.append((gray, gray, gray, 255))
-        
-        # Fill rest with more colors
-        for i in range(len(default_palette), 256):
-            # Generate a varied palette
-            r = (i * 37) % 256
-            g = (i * 67) % 256
-            b = (i * 97) % 256
-            default_palette.append((r, g, b, 255))
-        
         # Write palette
-        for color in default_palette[:256]:
+        for color in palette_colors[:256]:
             f.write(struct.pack('BBBB', *color))
     
     return output_path
+
+def generate_palette_from_colors(voxel_colors):
+    """Generate a 256-color palette from actual texture colors"""
+    if not voxel_colors:
+        return get_default_palette()
+    
+    # Collect all unique colors
+    unique_colors = list(set(voxel_colors.values()))
+    print(f"Found {len(unique_colors)} unique colors in texture")
+    
+    # Start with essential colors
+    palette = [
+        (0, 0, 0, 0),        # 0: Transparent
+        (255, 255, 255, 255), # 1: White
+        (0, 0, 0, 255),       # 2: Black
+    ]
+    
+    # Add actual texture colors (up to 253 more)
+    for color in unique_colors[:253]:
+        if len(palette) >= 256:
+            break
+        palette.append((*color, 255))  # Add alpha channel
+    
+    # Fill remaining slots with default colors if needed
+    if len(palette) < 256:
+        default_colors = [
+            (255, 0, 0, 255),     # Red
+            (0, 255, 0, 255),     # Green
+            (0, 0, 255, 255),     # Blue
+            (255, 255, 0, 255),   # Yellow
+            (255, 0, 255, 255),   # Magenta
+            (0, 255, 255, 255),   # Cyan
+        ]
+        
+        for color in default_colors:
+            if len(palette) >= 256:
+                break
+            palette.append(color)
+    
+    # Fill rest with grayscale
+    while len(palette) < 256:
+        gray = ((len(palette) - 3) * 10) % 256
+        palette.append((gray, gray, gray, 255))
+    
+    return palette[:256]
+
+def get_default_palette():
+    """Get default VOX palette"""
+    palette = [
+        (0, 0, 0, 0),        # 0: Transparent
+        (255, 255, 255, 255), # 1: White
+        (255, 0, 0, 255),     # 2: Red
+        (0, 255, 0, 255),     # 3: Green
+        (0, 0, 255, 255),     # 4: Blue
+        (255, 255, 0, 255),   # 5: Yellow
+        (255, 0, 255, 255),   # 6: Magenta
+        (0, 255, 255, 255),   # 7: Cyan
+        (0, 0, 0, 255),       # 8: Black
+    ]
+    
+    # Add gray scale
+    for i in range(9, 17):
+        gray = ((i - 9) * 32)
+        palette.append((gray, gray, gray, 255))
+    
+    # Fill rest with more colors
+    for i in range(len(palette), 256):
+        # Generate a varied palette
+        r = (i * 37) % 256
+        g = (i * 67) % 256
+        b = (i * 97) % 256
+        palette.append((r, g, b, 255))
+    
+    return palette
 
 def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size=None):
     """Main conversion function with texture support"""
