@@ -20,35 +20,47 @@ def parse_obj_file(obj_path):
     with open(obj_path, 'r') as f:
         for line in f:
             line = line.strip()
+            
+            # Skip empty lines and comments
+            if not line or line.startswith('#'):
+                continue
+                
             if line.startswith('v '):
                 # Vertex
                 parts = line.split()
-                vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
+                if len(parts) >= 4:
+                    vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
             elif line.startswith('vt '):
                 # Texture coordinate
                 parts = line.split()
-                texture_coords.append([float(parts[1]), float(parts[2])])
+                if len(parts) >= 3:
+                    texture_coords.append([float(parts[1]), float(parts[2])])
             elif line.startswith('f '):
                 # Face
                 parts = line.split()[1:]
                 face = []
                 face_tex = []
                 for part in parts:
+                    # Skip empty parts
+                    if not part:
+                        continue
                     # Handle face formats: vertex, vertex/texture, vertex/texture/normal, vertex//normal
                     components = part.split('/')
-                    vertex_idx = int(components[0]) - 1  # OBJ indices start at 1
-                    face.append(vertex_idx)
-                    
-                    # Get texture coordinate index if available
-                    if len(components) > 1 and components[1]:
-                        tex_idx = int(components[1]) - 1
-                        face_tex.append(tex_idx)
+                    if components[0]:  # Make sure vertex index exists
+                        vertex_idx = int(components[0]) - 1  # OBJ indices start at 1
+                        face.append(vertex_idx)
+                        
+                        # Get texture coordinate index if available
+                        if len(components) > 1 and components[1]:
+                            tex_idx = int(components[1]) - 1
+                            face_tex.append(tex_idx)
                 
-                faces.append(face)
-                if face_tex:
-                    face_textures.append(face_tex)
-                else:
-                    face_textures.append([])
+                if len(face) >= 3:  # Only add faces with at least 3 vertices
+                    faces.append(face)
+                    if face_tex:
+                        face_textures.append(face_tex)
+                    else:
+                        face_textures.append([])
     
     return np.array(vertices), faces, texture_coords, face_textures
 
@@ -141,7 +153,7 @@ def calculate_voxel_size_from_obj(vertices):
     return 64
 
 def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size=64):
-    """Improved voxelization with proper texture mapping per voxel"""
+    """Simple voxelization with direct UV mapping from OBJ file"""
     if len(vertices) == 0:
         return np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool), {}
     
@@ -161,15 +173,19 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     voxel_grid = np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool)
     voxel_colors = {}
     
-    # Process each face with proper UV mapping
+    print(f"Processing {len(faces)} faces...")
+    print(f"Texture coords available: {len(texture_coords)}")
+    print(f"Face textures available: {len(face_textures)}")
+    
+    # Process each face with direct UV mapping
     for face_idx, face in enumerate(faces):
         if len(face) < 3:
             continue
             
-        # Get face vertices and UV coordinates
+        # Get face vertices
         face_verts = vertices[face]
         
-        # Get UV coordinates for this face
+        # Get UV coordinates for this face directly from OBJ
         face_uvs = None
         if (texture_array is not None and 
             face_idx < len(face_textures) and 
@@ -179,6 +195,7 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             face_tex = face_textures[face_idx]
             if texture_coords and face_tex:
                 face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
+                print(f"Face {face_idx}: UV coords = {face_uvs}")
         
         # Transform to voxel space
         voxel_verts = (face_verts - min_coords) * scale
@@ -188,23 +205,25 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         min_v = voxel_verts.min(axis=0)
         max_v = voxel_verts.max(axis=0)
         
-        # Fill voxels in the bounding box with proper UV mapping
+        # Fill voxels in the bounding box
         for x in range(min_v[0], min(max_v[0] + 1, voxel_size)):
             for y in range(min_v[1], min(max_v[1] + 1, voxel_size)):
                 for z in range(min_v[2], min(max_v[2] + 1, voxel_size)):
                     # Convert voxel position back to 3D space
                     voxel_3d = np.array([x, y, z]) / scale + min_coords
                     
-                    # Check if this voxel is inside the face (simplified check)
+                    # Check if this voxel is inside the face
                     if is_point_in_face(voxel_3d, face_verts):
                         voxel_grid[x, y, z] = True
                         
-                        # Calculate UV coordinates for this voxel
+                        # Use UV coordinates directly from OBJ file
                         if face_uvs and len(face_uvs) >= 3:
+                            # Interpolate UV coordinates for this voxel
                             u, v = interpolate_uv(voxel_3d, face_verts, face_uvs)
                             color = get_texture_color(texture_array, u, v)
                         else:
-                            color = (128, 128, 128)  # Default gray
+                            # No UV coordinates - use face index for color variation
+                            color = get_face_color(face_idx)
                         
                         voxel_colors[(x, y, z)] = color
     
@@ -219,6 +238,18 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             voxel_colors[(x, y, z)] = (128, 128, 128)
     
     return filled, voxel_colors
+
+def get_face_color(face_idx):
+    """Generate a color based on face index for debugging"""
+    colors = [
+        (255, 0, 0),    # Red
+        (0, 255, 0),    # Green  
+        (0, 0, 255),    # Blue
+        (255, 255, 0),  # Yellow
+        (255, 0, 255),  # Magenta
+        (0, 255, 255),  # Cyan
+    ]
+    return colors[face_idx % len(colors)]
 
 def is_point_in_face(point, face_vertices):
     """Check if a 3D point is inside a triangular face (simplified)"""
@@ -249,7 +280,7 @@ def is_point_in_face(point, face_vertices):
     return (u >= 0) and (v >= 0) and (u + v <= 1)
 
 def interpolate_uv(point, face_vertices, face_uvs):
-    """Interpolate UV coordinates for a point inside a triangular face"""
+    """Interpolate UV coordinates for a point inside a triangular face using barycentric coordinates"""
     if len(face_vertices) < 3 or len(face_uvs) < 3:
         return 0.5, 0.5  # Default UV
     
@@ -261,16 +292,30 @@ def interpolate_uv(point, face_vertices, face_uvs):
     v0v2 = v2 - v0
     v0p = point - v0
     
+    # Calculate dot products
     dot00 = np.dot(v0v2, v0v2)
     dot01 = np.dot(v0v2, v0v1)
     dot02 = np.dot(v0v2, v0p)
     dot11 = np.dot(v0v1, v0v1)
     dot12 = np.dot(v0v1, v0p)
     
+    # Calculate barycentric coordinates
     inv_denom = 1 / (dot00 * dot11 - dot01 * dot01)
     u = (dot11 * dot02 - dot01 * dot12) * inv_denom
     v = (dot00 * dot12 - dot01 * dot02) * inv_denom
     w = 1 - u - v
+    
+    # Clamp barycentric coordinates to [0,1]
+    u = max(0, min(1, u))
+    v = max(0, min(1, v))
+    w = max(0, min(1, w))
+    
+    # Normalize to ensure they sum to 1
+    total = u + v + w
+    if total > 0:
+        u /= total
+        v /= total
+        w /= total
     
     # Interpolate UV coordinates
     u_coord = w * uv0[0] + u * uv1[0] + v * uv2[0]

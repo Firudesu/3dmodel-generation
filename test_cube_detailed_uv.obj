@@ -1,0 +1,55 @@
+# Test cube with detailed UV coordinates for each face
+# Vertices
+v -1 -1 -1
+v  1 -1 -1
+v  1  1 -1
+v -1  1 -1
+v -1 -1  1
+v  1 -1  1
+v  1  1  1
+v -1  1  1
+
+# Texture coordinates - different UV mapping for each face
+# Face 1 (front): full texture
+vt 0.0 0.0
+vt 1.0 0.0
+vt 1.0 1.0
+vt 0.0 1.0
+
+# Face 2 (back): top half of texture
+vt 0.0 0.5
+vt 1.0 0.5
+vt 1.0 1.0
+vt 0.0 1.0
+
+# Face 3 (left): left half of texture
+vt 0.0 0.0
+vt 0.5 0.0
+vt 0.5 1.0
+vt 0.0 1.0
+
+# Face 4 (right): right half of texture
+vt 0.5 0.0
+vt 1.0 0.0
+vt 1.0 1.0
+vt 0.5 1.0
+
+# Face 5 (top): center quarter of texture
+vt 0.25 0.25
+vt 0.75 0.25
+vt 0.75 0.75
+vt 0.25 0.75
+
+# Face 6 (bottom): bottom half of texture
+vt 0.0 0.0
+vt 1.0 0.0
+vt 1.0 0.5
+vt 0.0 0.5
+
+# Faces with different UV mappings
+f 1/1 2/2 3/3 4/4
+f 5/5 8/6 7/7 6/8
+f 1/9 5/10 6/11 2/12
+f 2/13 6/14 7/15 3/16
+f 3/17 7/18 8/19 4/20
+f 5/21 1/22 4/23 8/24
