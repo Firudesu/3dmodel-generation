@@ -12,9 +12,18 @@ print("✅ Directories created")
 # Import and run the Flask app directly
 from app import app
 
-# Get port from Render
-port = int(os.environ.get('PORT', 10000))
-print(f"🚀 Starting Flask app on port {port}")
+    # Get port from Render
+    port = int(os.environ.get('PORT', 10000))
+    print(f"🚀 Starting Flask app on port {port}")
 
-# Run Flask directly (fine for testing)
-app.run(host='0.0.0.0', port=port, debug=False)
+    # Run Flask directly (fine for testing)
+    try:
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except OSError as e:
+        if "Address already in use" in str(e):
+            # Try a different port
+            port += 1
+            print(f"Port {port-1} in use, trying port {port}")
+            app.run(host='0.0.0.0', port=port, debug=False)
+        else:
+            raise
