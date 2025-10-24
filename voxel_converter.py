@@ -66,19 +66,19 @@ def load_texture(texture_path):
         return None
 
 def get_texture_color(texture_array, u, v):
-    """Sample color from texture at UV coordinates with better sampling"""
+    """Sample color from texture at UV coordinates with improved sampling"""
     if texture_array is None:
         return (128, 128, 128)  # Default gray color
     
     h, w = texture_array.shape[:2]
     
-    # Wrap UV coordinates
-    u = u % 1.0
-    v = v % 1.0
+    # Clamp UV coordinates to [0, 1] range
+    u = max(0.0, min(1.0, u))
+    v = max(0.0, min(1.0, v))
     
     # Convert to pixel coordinates with sub-pixel accuracy
     x = u * (w - 1)
-    y = (1.0 - v) * (h - 1)  # Flip V coordinate
+    y = (1.0 - v) * (h - 1)  # Flip V coordinate for proper texture orientation
     
     # Bilinear sampling for better color accuracy
     x1 = int(x)
@@ -86,7 +86,7 @@ def get_texture_color(texture_array, u, v):
     x2 = min(x1 + 1, w - 1)
     y2 = min(y1 + 1, h - 1)
     
-    # Clamp to array bounds
+    # Clamp to array bounds (shouldn't be needed but safety first)
     x1 = max(0, min(x1, w - 1))
     y1 = max(0, min(y1, h - 1))
     x2 = max(0, min(x2, w - 1))
@@ -107,7 +107,7 @@ def get_texture_color(texture_array, u, v):
     c2 = c12 * (1 - fx) + c22 * fx
     result = c1 * (1 - fy) + c2 * fy
     
-    return tuple(result.astype(int))
+    return tuple(np.clip(result.astype(int), 0, 255))
 
 def calculate_voxel_size_from_obj(vertices):
     """Calculate appropriate voxel size based on OBJ dimensions"""
@@ -141,7 +141,7 @@ def calculate_voxel_size_from_obj(vertices):
     return 64
 
 def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size=64):
-    """Simple and fast voxelization with basic texture mapping"""
+    """Improved voxelization with proper texture mapping per voxel"""
     if len(vertices) == 0:
         return np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool), {}
     
@@ -161,46 +161,57 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     voxel_grid = np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool)
     voxel_colors = {}
     
-    # Simple face-based coloring (much faster)
+    # Process each face with proper UV mapping
     for face_idx, face in enumerate(faces):
         if len(face) < 3:
             continue
             
-        # Get face vertices
+        # Get face vertices and UV coordinates
         face_verts = vertices[face]
         
-        # Get face color from texture (simplified)
-        face_color = (128, 128, 128)  # Default gray
-        
-        if texture_array is not None and face_idx < len(face_textures) and face_textures[face_idx]:
+        # Get UV coordinates for this face
+        face_uvs = None
+        if (texture_array is not None and 
+            face_idx < len(face_textures) and 
+            face_textures[face_idx] and 
+            len(face_textures[face_idx]) >= 3):
+            
             face_tex = face_textures[face_idx]
-            if texture_coords and face_tex and len(face_tex) >= 3:
-                # Use first 3 UV coordinates for simple sampling
-                uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
-                if len(uvs) >= 3:
-                    # Average UV coordinates for the face
-                    avg_u = np.mean([uv[0] for uv in uvs])
-                    avg_v = np.mean([uv[1] for uv in uvs])
-                    face_color = get_texture_color(texture_array, avg_u, avg_v)
+            if texture_coords and face_tex:
+                face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
         
         # Transform to voxel space
         voxel_verts = (face_verts - min_coords) * scale
         voxel_verts = np.clip(voxel_verts, 0, voxel_size - 1).astype(int)
         
-        # Simple bounding box fill (much faster than per-voxel sampling)
+        # Get bounding box for this face
         min_v = voxel_verts.min(axis=0)
         max_v = voxel_verts.max(axis=0)
         
+        # Fill voxels in the bounding box with proper UV mapping
         for x in range(min_v[0], min(max_v[0] + 1, voxel_size)):
             for y in range(min_v[1], min(max_v[1] + 1, voxel_size)):
                 for z in range(min_v[2], min(max_v[2] + 1, voxel_size)):
-                    voxel_grid[x, y, z] = True
-                    voxel_colors[(x, y, z)] = face_color
+                    # Convert voxel position back to 3D space
+                    voxel_3d = np.array([x, y, z]) / scale + min_coords
+                    
+                    # Check if this voxel is inside the face (simplified check)
+                    if is_point_in_face(voxel_3d, face_verts):
+                        voxel_grid[x, y, z] = True
+                        
+                        # Calculate UV coordinates for this voxel
+                        if face_uvs and len(face_uvs) >= 3:
+                            u, v = interpolate_uv(voxel_3d, face_verts, face_uvs)
+                            color = get_texture_color(texture_array, u, v)
+                        else:
+                            color = (128, 128, 128)  # Default gray
+                        
+                        voxel_colors[(x, y, z)] = color
     
     # Simple flood fill for interior
     filled = flood_fill_exterior(voxel_grid)
     
-    # Update colors for filled voxels
+    # Update colors for filled voxels (interior)
     new_voxels = np.argwhere(filled & ~voxel_grid)
     for voxel in new_voxels:
         x, y, z = voxel
@@ -208,6 +219,64 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             voxel_colors[(x, y, z)] = (128, 128, 128)
     
     return filled, voxel_colors
+
+def is_point_in_face(point, face_vertices):
+    """Check if a 3D point is inside a triangular face (simplified)"""
+    if len(face_vertices) < 3:
+        return False
+    
+    # Use barycentric coordinates for triangle
+    v0, v1, v2 = face_vertices[:3]
+    
+    # Calculate vectors
+    v0v1 = v1 - v0
+    v0v2 = v2 - v0
+    v0p = point - v0
+    
+    # Calculate dot products
+    dot00 = np.dot(v0v2, v0v2)
+    dot01 = np.dot(v0v2, v0v1)
+    dot02 = np.dot(v0v2, v0p)
+    dot11 = np.dot(v0v1, v0v1)
+    dot12 = np.dot(v0v1, v0p)
+    
+    # Calculate barycentric coordinates
+    inv_denom = 1 / (dot00 * dot11 - dot01 * dot01)
+    u = (dot11 * dot02 - dot01 * dot12) * inv_denom
+    v = (dot00 * dot12 - dot01 * dot02) * inv_denom
+    
+    # Check if point is in triangle
+    return (u >= 0) and (v >= 0) and (u + v <= 1)
+
+def interpolate_uv(point, face_vertices, face_uvs):
+    """Interpolate UV coordinates for a point inside a triangular face"""
+    if len(face_vertices) < 3 or len(face_uvs) < 3:
+        return 0.5, 0.5  # Default UV
+    
+    v0, v1, v2 = face_vertices[:3]
+    uv0, uv1, uv2 = face_uvs[:3]
+    
+    # Calculate barycentric coordinates
+    v0v1 = v1 - v0
+    v0v2 = v2 - v0
+    v0p = point - v0
+    
+    dot00 = np.dot(v0v2, v0v2)
+    dot01 = np.dot(v0v2, v0v1)
+    dot02 = np.dot(v0v2, v0p)
+    dot11 = np.dot(v0v1, v0v1)
+    dot12 = np.dot(v0v1, v0p)
+    
+    inv_denom = 1 / (dot00 * dot11 - dot01 * dot01)
+    u = (dot11 * dot02 - dot01 * dot12) * inv_denom
+    v = (dot00 * dot12 - dot01 * dot02) * inv_denom
+    w = 1 - u - v
+    
+    # Interpolate UV coordinates
+    u_coord = w * uv0[0] + u * uv1[0] + v * uv2[0]
+    v_coord = w * uv0[1] + u * uv1[1] + v * uv2[1]
+    
+    return u_coord, v_coord
 
 def voxelize_mesh(vertices, faces, texture_coords, face_textures, face_materials, materials, texture_array, voxel_size=64):
     """Convert mesh to voxel grid with colors (complex version - kept for compatibility)"""
@@ -449,6 +518,7 @@ def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size
         texture_array = load_texture(texture_path)
         if texture_array is not None:
             print(f"Texture loaded: {texture_array.shape}")
+            print(f"Texture color range: {texture_array.min()} - {texture_array.max()}")
         else:
             print("Failed to load texture, using default colors")
     else:
@@ -458,12 +528,19 @@ def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size
     voxel_size = 64
     print(f"Using voxel size: {voxel_size}x{voxel_size}x{voxel_size}")
     
-    # Voxelize with simple texture mapping
+    # Voxelize with improved texture mapping
     print(f"Voxelizing to {voxel_size}x{voxel_size}x{voxel_size} grid...")
+    print(f"Processing {len(faces)} faces with texture mapping...")
     voxel_grid, voxel_colors = voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size)
     
     num_voxels = np.sum(voxel_grid)
     print(f"Generated {num_voxels} voxels")
+    
+    if voxel_colors:
+        unique_colors = len(set(voxel_colors.values()))
+        print(f"Applied {unique_colors} unique colors from texture")
+    else:
+        print("No colors applied - using default gray")
     
     if num_voxels == 0:
         raise ValueError("No voxels generated - model might be too small or invalid")
