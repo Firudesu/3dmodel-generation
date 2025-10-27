@@ -569,8 +569,9 @@ def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size
     else:
         print("No texture provided, using default colors")
     
-    # Use fixed voxel size for speed
-    voxel_size = 64
+    # Use provided voxel size or calculate appropriate size
+    if voxel_size is None:
+        voxel_size = calculate_voxel_size_from_obj(vertices)
     print(f"Using voxel size: {voxel_size}x{voxel_size}x{voxel_size}")
     
     # Voxelize with improved texture mapping
