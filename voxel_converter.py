@@ -122,7 +122,7 @@ def get_texture_color(texture_array, u, v):
     return tuple(np.clip(result.astype(int), 0, 255))
 
 def calculate_voxel_size_from_obj(vertices):
-    """Calculate appropriate voxel size based on OBJ dimensions"""
+    """Calculate voxel size to match OBJ dimensions"""
     if len(vertices) == 0:
         return 64
     
@@ -134,23 +134,18 @@ def calculate_voxel_size_from_obj(vertices):
     # Get the longest dimension
     max_dimension = dimensions.max()
     
-    # Calculate voxel size based on model complexity
-    # Aim for reasonable detail while keeping file size manageable
-    if max_dimension < 1.0:
-        # Very small model - use higher resolution
-        return 128
-    elif max_dimension < 10.0:
-        # Small to medium model
-        return 64
-    elif max_dimension < 100.0:
-        # Medium to large model
-        return 64
-    else:
-        # Very large model - may need lower resolution
-        return 32
+    # Scale voxel size to match the model's actual dimensions
+    # Use the longest dimension as the base for voxel size
+    voxel_size = int(max_dimension * 64)  # Scale factor of 64 per unit
     
-    # Always return 64 as default for now (can be adjusted based on needs)
-    return 64
+    # Ensure reasonable bounds
+    voxel_size = max(32, min(512, voxel_size))  # Between 32 and 512
+    
+    print(f"Model dimensions: {dimensions}")
+    print(f"Longest dimension: {max_dimension}")
+    print(f"Calculated voxel size: {voxel_size}")
+    
+    return voxel_size
 
 def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size=64):
     """Simple voxelization with direct UV mapping from OBJ file"""
