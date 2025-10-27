@@ -185,6 +185,14 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     batch_size = 100  # Much smaller batches
     total_faces = len(faces)
     
+    # For very large models, limit the number of faces to prevent memory issues
+    max_faces = 10000  # Limit to 10k faces for memory safety
+    if total_faces > max_faces:
+        print(f"Large model detected ({total_faces} faces). Limiting to {max_faces} faces for memory safety.")
+        faces = faces[:max_faces]
+        face_textures = face_textures[:max_faces] if face_textures else []
+        total_faces = max_faces
+    
     for batch_start in range(0, total_faces, batch_size):
         batch_end = min(batch_start + batch_size, total_faces)
         batch_faces = faces[batch_start:batch_end]
