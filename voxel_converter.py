@@ -169,16 +169,15 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     max_coords += padding
     dimensions = max_coords - min_coords
     
-    # Calculate voxel dimensions based on actual model dimensions
-    # Use a reasonable resolution that matches the model size
-    base_resolution = 32  # 32 voxels per unit
-    voxel_dims = []
-    for i in range(3):
-        if dimensions[i] > 0:
-            dim_size = int(base_resolution * dimensions[i])
-            voxel_dims.append(max(1, min(dim_size, 64)))  # Reasonable max for 2-unit model
-        else:
-            voxel_dims.append(1)  # Minimum 1 voxel for zero dimensions
+    # Create a proper cubic voxel grid for the model
+    # Use 64 voxels per unit for good detail
+    base_resolution = 64
+    max_dimension = dimensions.max()
+    voxel_size = int(base_resolution * max_dimension)
+    voxel_size = max(32, min(voxel_size, 128))  # Reasonable bounds
+    
+    # Create cubic voxel grid
+    voxel_dims = [voxel_size, voxel_size, voxel_size]
     
     # Scale to voxel grid
     # Avoid division by zero for zero dimensions
@@ -202,15 +201,9 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     batch_size = 100  # Much smaller batches
     total_faces = len(faces)
     
-    # For very large models, use aggressive sampling to prevent memory issues
-    max_faces = 2000  # Reduced limit for memory safety
-    if total_faces > max_faces:
-        print(f"Large model detected ({total_faces} faces). Sampling {max_faces} faces for memory safety.")
-        # Sample faces evenly across the model instead of just taking the first 2000
-        step = total_faces // max_faces
-        faces = faces[::step][:max_faces]
-        face_textures = face_textures[::step][:max_faces] if face_textures else []
-        total_faces = len(faces)
+    # Process all faces for proper voxelization
+    # No face limiting - process the full model
+    print(f"Processing all {total_faces} faces for complete voxelization")
     
     for batch_start in range(0, total_faces, batch_size):
         batch_end = min(batch_start + batch_size, total_faces)
@@ -218,10 +211,8 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         
         print(f"Processing faces {batch_start}-{batch_end-1} of {total_faces}")
         
-        # Early exit if processing is taking too long (reduced threshold for memory)
-        if batch_start > 0 and batch_start % 1000 == 0:
-            print(f"Processed {batch_start} faces, stopping early for memory safety...")
-            break
+        # No early exit - process the full model
+        # Remove artificial limitations for proper voxelization
             
         # Process each face with direct UV mapping
         for local_idx, face in enumerate(batch_faces):
