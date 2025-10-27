@@ -122,9 +122,9 @@ def get_texture_color(texture_array, u, v):
     return tuple(np.clip(result.astype(int), 0, 255))
 
 def calculate_voxel_size_from_obj(vertices):
-    """Calculate voxel size to match OBJ dimensions with reasonable limits"""
+    """Calculate voxel size to match OBJ dimensions with strict memory limits"""
     if len(vertices) == 0:
-        return 64
+        return 32
     
     # Find bounding box
     min_coords = vertices.min(axis=0)
@@ -134,21 +134,21 @@ def calculate_voxel_size_from_obj(vertices):
     # Get the longest dimension
     max_dimension = dimensions.max()
     
-    # Use a more conservative scaling approach
-    # For models with dimensions around 2 units, use 64-128 voxels
+    # Very conservative scaling to prevent memory issues
+    # Keep voxel size small for complex models
     if max_dimension < 1.0:
-        voxel_size = 64
+        voxel_size = 32
     elif max_dimension < 2.0:
-        voxel_size = 96
+        voxel_size = 48
     elif max_dimension < 5.0:
-        voxel_size = 128
+        voxel_size = 64
     elif max_dimension < 10.0:
-        voxel_size = 160
+        voxel_size = 80
     else:
-        voxel_size = 192
+        voxel_size = 96
     
-    # Hard limit to prevent excessive memory usage
-    voxel_size = min(voxel_size, 256)
+    # Very strict limit to prevent memory issues
+    voxel_size = min(voxel_size, 128)
     
     print(f"Model dimensions: {dimensions}")
     print(f"Longest dimension: {max_dimension}")
@@ -181,8 +181,8 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     print(f"Texture coords available: {len(texture_coords)}")
     print(f"Face textures available: {len(face_textures)}")
     
-    # Process faces in batches to avoid memory issues
-    batch_size = 500
+    # Process faces in smaller batches to avoid memory issues
+    batch_size = 100  # Much smaller batches
     total_faces = len(faces)
     
     for batch_start in range(0, total_faces, batch_size):
@@ -249,6 +249,10 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
                                 color = get_face_color(face_idx)
                             
                             voxel_colors[(x, y, z)] = color
+        
+        # Force garbage collection between batches to free memory
+        import gc
+        gc.collect()
     
     # Simple flood fill for interior
     filled = flood_fill_exterior(voxel_grid)
