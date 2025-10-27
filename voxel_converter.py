@@ -202,11 +202,11 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     batch_size = 100  # Much smaller batches
     total_faces = len(faces)
     
-    # For very large models, use aggressive sampling to prevent memory issues
-    max_faces = 2000  # Reduced limit for memory safety
+    # For very large models, use reasonable sampling to prevent memory issues
+    max_faces = 10000  # Increased limit for better quality
     if total_faces > max_faces:
         print(f"Large model detected ({total_faces} faces). Sampling {max_faces} faces for memory safety.")
-        # Sample faces evenly across the model instead of just taking the first 2000
+        # Sample faces evenly across the model instead of just taking the first 10000
         step = total_faces // max_faces
         faces = faces[::step][:max_faces]
         face_textures = face_textures[::step][:max_faces] if face_textures else []
@@ -218,8 +218,8 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         
         print(f"Processing faces {batch_start}-{batch_end-1} of {total_faces}")
         
-        # Early exit if processing is taking too long (reduced threshold for memory)
-        if batch_start > 0 and batch_start % 1000 == 0:
+        # Early exit if processing is taking too long (increased threshold for better quality)
+        if batch_start > 0 and batch_start % 5000 == 0:
             print(f"Processed {batch_start} faces, stopping early for memory safety...")
             break
             
@@ -256,7 +256,7 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             if (max_v - min_v).max() < 1:
                 continue
             
-            # Fill voxels in the bounding box
+            # Fill voxels in the bounding box with improved sampling
             for x in range(min_v[0], min(max_v[0] + 1, voxel_dims[0])):
                 for y in range(min_v[1], min(max_v[1] + 1, voxel_dims[1])):
                     for z in range(min_v[2], min(max_v[2] + 1, voxel_dims[2])):
@@ -267,8 +267,8 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
                         # Convert voxel position back to 3D space
                         voxel_3d = np.array([x, y, z]) / scale + min_coords
                         
-                        # Check if this voxel is inside the face
-                        if is_point_in_face(voxel_3d, face_verts):
+                        # Check if this voxel is inside the face with improved algorithm
+                        if is_point_in_face_improved(voxel_3d, face_verts):
                             voxel_grid[x, y, z] = True
                             
                             # Use UV coordinates directly from OBJ file
@@ -286,15 +286,16 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         import gc
         gc.collect()
     
-    # Simple flood fill for interior
-    filled = flood_fill_exterior(voxel_grid)
+    # Improved flood fill for interior
+    filled = flood_fill_exterior_improved(voxel_grid)
     
     # Update colors for filled voxels (interior)
     new_voxels = np.argwhere(filled & ~voxel_grid)
     for voxel in new_voxels:
         x, y, z = voxel
         if not (x, y, z) in voxel_colors:
-            voxel_colors[(x, y, z)] = (128, 128, 128)
+            # Use a darker gray for interior voxels
+            voxel_colors[(x, y, z)] = (96, 96, 96)
     
     return filled, voxel_colors
 
@@ -337,6 +338,39 @@ def is_point_in_face(point, face_vertices):
     
     # Check if point is in triangle
     return (u >= 0) and (v >= 0) and (u + v <= 1)
+
+def is_point_in_face_improved(point, face_vertices):
+    """Improved point-in-face check with better tolerance for voxelization"""
+    if len(face_vertices) < 3:
+        return False
+    
+    # Use barycentric coordinates for triangle
+    v0, v1, v2 = face_vertices[:3]
+    
+    # Calculate vectors
+    v0v1 = v1 - v0
+    v0v2 = v2 - v0
+    v0p = point - v0
+    
+    # Calculate dot products
+    dot00 = np.dot(v0v2, v0v2)
+    dot01 = np.dot(v0v2, v0v1)
+    dot02 = np.dot(v0v2, v0p)
+    dot11 = np.dot(v0v1, v0v1)
+    dot12 = np.dot(v0v1, v0p)
+    
+    # Calculate barycentric coordinates
+    denom = dot00 * dot11 - dot01 * dot01
+    if abs(denom) < 1e-10:  # Avoid division by zero
+        return False
+    
+    inv_denom = 1 / denom
+    u = (dot11 * dot02 - dot01 * dot12) * inv_denom
+    v = (dot00 * dot12 - dot01 * dot02) * inv_denom
+    
+    # Check if point is in triangle with small tolerance for voxelization
+    tolerance = 0.01  # Small tolerance for better voxel coverage
+    return (u >= -tolerance) and (v >= -tolerance) and (u + v <= 1 + tolerance)
 
 def interpolate_uv(point, face_vertices, face_uvs):
     """Interpolate UV coordinates for a point inside a triangular face using barycentric coordinates"""
@@ -425,6 +459,49 @@ def flood_fill_exterior(voxel_grid):
     
     # Interior = not exterior and not boundary
     interior = ~exterior[1:-1, 1:-1, 1:-1]
+    
+    # Combine boundary and interior
+    return voxel_grid | interior
+
+def flood_fill_exterior_improved(voxel_grid):
+    """Improved flood fill for better interior detection"""
+    # Handle non-cubic voxel grids
+    if len(voxel_grid.shape) == 3:
+        size_x, size_y, size_z = voxel_grid.shape
+    else:
+        size_x = size_y = size_z = voxel_grid.shape[0]
+    
+    filled = voxel_grid.copy()
+    
+    # Create a larger padding for better flood fill
+    padding = 2
+    padded = np.zeros((size_x + 2*padding, size_y + 2*padding, size_z + 2*padding), dtype=bool)
+    padded[padding:-padding, padding:-padding, padding:-padding] = voxel_grid
+    
+    # Flood fill from multiple corners for better coverage
+    stack = [(0, 0, 0), (padded.shape[0]-1, 0, 0), (0, padded.shape[1]-1, 0), (0, 0, padded.shape[2]-1)]
+    exterior = np.zeros_like(padded, dtype=bool)
+    
+    while stack:
+        x, y, z = stack.pop()
+        
+        if x < 0 or x >= padded.shape[0] or y < 0 or y >= padded.shape[1] or z < 0 or z >= padded.shape[2]:
+            continue
+            
+        if exterior[x, y, z] or padded[x, y, z]:
+            continue
+            
+        exterior[x, y, z] = True
+        
+        # Add neighbors
+        stack.extend([
+            (x+1, y, z), (x-1, y, z),
+            (x, y+1, z), (x, y-1, z),
+            (x, y, z+1), (x, y, z-1)
+        ])
+    
+    # Interior = not exterior and not boundary
+    interior = ~exterior[padding:-padding, padding:-padding, padding:-padding]
     
     # Combine boundary and interior
     return voxel_grid | interior
