@@ -202,11 +202,11 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     batch_size = 100  # Much smaller batches
     total_faces = len(faces)
     
-    # For very large models, use aggressive sampling to prevent memory issues
-    max_faces = 1000  # Even smaller limit for speed
+    # For very large models, use moderate sampling to prevent memory issues
+    max_faces = 5000  # Increased limit for better quality
     if total_faces > max_faces:
-        print(f"Large model detected ({total_faces} faces). Sampling {max_faces} faces for speed and memory safety.")
-        # Sample faces evenly across the model instead of just taking the first 1000
+        print(f"Large model detected ({total_faces} faces). Sampling {max_faces} faces for quality and memory safety.")
+        # Sample faces evenly across the model instead of just taking the first 5000
         step = total_faces // max_faces
         faces = faces[::step][:max_faces]
         face_textures = face_textures[::step][:max_faces] if face_textures else []
@@ -218,8 +218,8 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         
         print(f"Processing faces {batch_start}-{batch_end-1} of {total_faces}")
         
-        # Early exit if processing is taking too long
-        if batch_start > 0 and batch_start % 500 == 0:
+        # Early exit if processing is taking too long (increased threshold)
+        if batch_start > 0 and batch_start % 2000 == 0:
             print(f"Processed {batch_start} faces, stopping early for speed...")
             break
             
@@ -389,11 +389,16 @@ def voxelize_mesh(vertices, faces, texture_coords, face_textures, face_materials
 
 def flood_fill_exterior(voxel_grid):
     """Fill the interior of the voxel model"""
-    size = voxel_grid.shape[0]
+    # Handle non-cubic voxel grids
+    if len(voxel_grid.shape) == 3:
+        size_x, size_y, size_z = voxel_grid.shape
+    else:
+        size_x = size_y = size_z = voxel_grid.shape[0]
+    
     filled = voxel_grid.copy()
     
     # Create a slightly larger grid to ensure we can flood fill from outside
-    padded = np.zeros((size + 2, size + 2, size + 2), dtype=bool)
+    padded = np.zeros((size_x + 2, size_y + 2, size_z + 2), dtype=bool)
     padded[1:-1, 1:-1, 1:-1] = voxel_grid
     
     # Flood fill from corner
