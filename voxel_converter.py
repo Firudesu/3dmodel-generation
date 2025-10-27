@@ -122,9 +122,9 @@ def get_texture_color(texture_array, u, v):
     return tuple(np.clip(result.astype(int), 0, 255))
 
 def calculate_voxel_size_from_obj(vertices):
-    """Calculate voxel size to match OBJ dimensions with strict memory limits"""
+    """Calculate voxel size based on actual OBJ model dimensions"""
     if len(vertices) == 0:
-        return 32
+        return 64
     
     # Find bounding box
     min_coords = vertices.min(axis=0)
@@ -134,25 +134,22 @@ def calculate_voxel_size_from_obj(vertices):
     # Get the longest dimension
     max_dimension = dimensions.max()
     
-    # Very conservative scaling to prevent memory issues
-    # Keep voxel size very small for complex models
-    if max_dimension < 1.0:
-        voxel_size = 32
-    elif max_dimension < 2.0:
-        voxel_size = 40
-    elif max_dimension < 5.0:
-        voxel_size = 48
-    elif max_dimension < 10.0:
-        voxel_size = 56
-    else:
-        voxel_size = 64
+    # Handle zero dimensions (flat models)
+    if max_dimension == 0:
+        print("Warning: Model has zero dimensions, using default size")
+        return 64
     
-    # Very strict limit to prevent memory issues
-    voxel_size = min(voxel_size, 64)
+    # Calculate voxel size based on actual model size
+    # Use 64 voxels per unit of model dimension
+    base_resolution = 64
+    voxel_size = int(base_resolution * max_dimension)
+    
+    # Ensure reasonable bounds
+    voxel_size = max(32, min(voxel_size, 256))
     
     print(f"Model dimensions: {dimensions}")
     print(f"Longest dimension: {max_dimension}")
-    print(f"Calculated voxel size: {voxel_size}")
+    print(f"Calculated voxel size: {voxel_size} (based on actual model size)")
     
     return voxel_size
 
@@ -164,19 +161,39 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     # Find bounding box
     min_coords = vertices.min(axis=0)
     max_coords = vertices.max(axis=0)
+    dimensions = max_coords - min_coords
     
     # Add padding
-    padding = (max_coords - min_coords) * 0.1
+    padding = dimensions * 0.1
     min_coords -= padding
     max_coords += padding
+    dimensions = max_coords - min_coords
+    
+    # Calculate voxel dimensions based on actual model dimensions
+    # Use the same resolution for all dimensions
+    base_resolution = 64
+    voxel_dims = []
+    for i in range(3):
+        if dimensions[i] > 0:
+            dim_size = int(base_resolution * dimensions[i])
+            voxel_dims.append(max(1, min(dim_size, 256)))
+        else:
+            voxel_dims.append(1)  # Minimum 1 voxel for zero dimensions
     
     # Scale to voxel grid
-    scale = voxel_size / (max_coords - min_coords).max()
+    # Avoid division by zero for zero dimensions
+    scale = np.zeros(3)
+    for i in range(3):
+        if dimensions[i] > 0:
+            scale[i] = voxel_dims[i] / dimensions[i]
+        else:
+            scale[i] = 1  # Default scale for zero dimensions
     
-    # Create voxel grid and color map
-    voxel_grid = np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool)
+    # Create voxel grid with actual model dimensions
+    voxel_grid = np.zeros(tuple(voxel_dims), dtype=bool)
     voxel_colors = {}
     
+    print(f"Voxel grid dimensions: {voxel_dims}")
     print(f"Processing {len(faces)} faces...")
     print(f"Texture coords available: {len(texture_coords)}")
     print(f"Face textures available: {len(face_textures)}")
@@ -229,7 +246,7 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             
             # Transform to voxel space
             voxel_verts = (face_verts - min_coords) * scale
-            voxel_verts = np.clip(voxel_verts, 0, voxel_size - 1).astype(int)
+            voxel_verts = np.clip(voxel_verts, 0, np.array(voxel_dims) - 1).astype(int)
             
             # Get bounding box for this face
             min_v = voxel_verts.min(axis=0)
@@ -240,9 +257,9 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
                 continue
             
             # Fill voxels in the bounding box
-            for x in range(min_v[0], min(max_v[0] + 1, voxel_size)):
-                for y in range(min_v[1], min(max_v[1] + 1, voxel_size)):
-                    for z in range(min_v[2], min(max_v[2] + 1, voxel_size)):
+            for x in range(min_v[0], min(max_v[0] + 1, voxel_dims[0])):
+                for y in range(min_v[1], min(max_v[1] + 1, voxel_dims[1])):
+                    for z in range(min_v[2], min(max_v[2] + 1, voxel_dims[2])):
                         # Skip if already filled
                         if voxel_grid[x, y, z]:
                             continue
@@ -449,7 +466,11 @@ def rgb_to_palette_index(r, g, b, palette_colors=None):
 
 def create_vox_file(voxel_grid, voxel_colors, output_path):
     """Create a VOX file from voxel grid with colors"""
-    size = voxel_grid.shape[0]
+    # Handle non-cubic voxel grids
+    if len(voxel_grid.shape) == 3:
+        size_x, size_y, size_z = voxel_grid.shape
+    else:
+        size_x = size_y = size_z = voxel_grid.shape[0]
     
     # Get voxel positions
     voxel_positions = np.argwhere(voxel_grid)
@@ -481,9 +502,9 @@ def create_vox_file(voxel_grid, voxel_colors, output_path):
         f.write(b'SIZE')
         f.write(struct.pack('<I', size_chunk_size))
         f.write(struct.pack('<I', 0))  # No children
-        f.write(struct.pack('<I', size))  # Size X
-        f.write(struct.pack('<I', size))  # Size Y
-        f.write(struct.pack('<I', size))  # Size Z
+        f.write(struct.pack('<I', size_x))  # Size X
+        f.write(struct.pack('<I', size_y))  # Size Y
+        f.write(struct.pack('<I', size_z))  # Size Z
         
         # XYZI chunk
         f.write(b'XYZI')
