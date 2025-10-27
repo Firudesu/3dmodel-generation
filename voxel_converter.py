@@ -10,12 +10,45 @@ from pathlib import Path
 from PIL import Image
 import os
 
+def parse_mtl_file(mtl_path):
+    """Parse MTL file to find texture references"""
+    textures = {}
+    current_material = None
+    
+    if not os.path.exists(mtl_path):
+        return textures
+    
+    try:
+        with open(mtl_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                
+                if not line or line.startswith('#'):
+                    continue
+                
+                if line.startswith('newmtl '):
+                    current_material = line.split()[1]
+                elif line.startswith('map_Kd ') and current_material:
+                    # Diffuse texture map
+                    texture_file = line.split()[1]
+                    textures[current_material] = texture_file
+                elif line.startswith('map_Ka ') and current_material:
+                    # Ambient texture map (fallback)
+                    texture_file = line.split()[1]
+                    if current_material not in textures:
+                        textures[current_material] = texture_file
+    except Exception as e:
+        print(f"Warning: Could not parse MTL file {mtl_path}: {e}")
+    
+    return textures
+
 def parse_obj_file(obj_path):
-    """Parse OBJ file and extract vertices, faces, and texture coordinates (simplified)"""
+    """Parse OBJ file and extract vertices, faces, and texture coordinates (improved)"""
     vertices = []
     faces = []
     texture_coords = []
     face_textures = []
+    mtl_file = None
     
     with open(obj_path, 'r') as f:
         for line in f:
@@ -35,6 +68,9 @@ def parse_obj_file(obj_path):
                 parts = line.split()
                 if len(parts) >= 3:
                     texture_coords.append([float(parts[1]), float(parts[2])])
+            elif line.startswith('mtllib '):
+                # Material library reference
+                mtl_file = line.split()[1]
             elif line.startswith('f '):
                 # Face
                 parts = line.split()[1:]
@@ -54,15 +90,29 @@ def parse_obj_file(obj_path):
                         if len(components) > 1 and components[1]:
                             tex_idx = int(components[1]) - 1
                             face_tex.append(tex_idx)
+                        else:
+                            # If no UV index for this vertex, append -1 to maintain alignment
+                            face_tex.append(-1)
                 
                 if len(face) >= 3:  # Only add faces with at least 3 vertices
                     faces.append(face)
-                    if face_tex:
-                        face_textures.append(face_tex)
-                    else:
-                        face_textures.append([])
+                    # Ensure face_tex has same length as face, fill with -1 if needed
+                    while len(face_tex) < len(face):
+                        face_tex.append(-1)
+                    face_textures.append(face_tex)
     
-    return np.array(vertices), faces, texture_coords, face_textures
+    # Try to find texture file from MTL if available
+    texture_file = None
+    if mtl_file:
+        mtl_path = os.path.join(os.path.dirname(obj_path), mtl_file)
+        textures = parse_mtl_file(mtl_path)
+        if textures:
+            # Use the first texture found
+            texture_file = list(textures.values())[0]
+            # Make path relative to OBJ file directory
+            texture_file = os.path.join(os.path.dirname(obj_path), texture_file)
+    
+    return np.array(vertices), faces, texture_coords, face_textures, texture_file
 
 def load_texture(texture_path):
     """Load texture image and convert to color array"""
@@ -189,13 +239,21 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         face_uvs = None
         if (texture_array is not None and 
             face_idx < len(face_textures) and 
-            face_textures[face_idx] and 
-            len(face_textures[face_idx]) >= 3):
+            face_textures[face_idx]):
             
             face_tex = face_textures[face_idx]
             if texture_coords and face_tex:
-                face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
-                print(f"Face {face_idx}: UV coords = {face_uvs}")
+                # Get UV coordinates for all vertices in the face, not just first 3
+                face_uvs = []
+                for tex_idx in face_tex:
+                    if tex_idx >= 0 and tex_idx < len(texture_coords):
+                        face_uvs.append(texture_coords[tex_idx])
+                    else:
+                        # Use default UV if index is invalid
+                        face_uvs.append([0.5, 0.5])
+                
+                if len(face_uvs) >= 3:  # Need at least 3 UV coordinates for interpolation
+                    print(f"Face {face_idx}: UV coords = {face_uvs[:4]}...")  # Show first 4 UVs
         
         # Transform to voxel space
         voxel_verts = (face_verts - min_coords) * scale
@@ -219,7 +277,7 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
                         # Use UV coordinates directly from OBJ file
                         if face_uvs and len(face_uvs) >= 3:
                             # Interpolate UV coordinates for this voxel
-                            u, v = interpolate_uv(voxel_3d, face_verts, face_uvs)
+                            u, v = interpolate_uv_improved(voxel_3d, face_verts, face_uvs)
                             color = get_texture_color(texture_array, u, v)
                         else:
                             # No UV coordinates - use face index for color variation
@@ -300,7 +358,11 @@ def interpolate_uv(point, face_vertices, face_uvs):
     dot12 = np.dot(v0v1, v0p)
     
     # Calculate barycentric coordinates
-    inv_denom = 1 / (dot00 * dot11 - dot01 * dot01)
+    denom = dot00 * dot11 - dot01 * dot01
+    if abs(denom) < 1e-8:
+        return 0.5, 0.5  # Degenerate triangle
+    
+    inv_denom = 1 / denom
     u = (dot11 * dot02 - dot01 * dot12) * inv_denom
     v = (dot00 * dot12 - dot01 * dot02) * inv_denom
     w = 1 - u - v
@@ -322,6 +384,50 @@ def interpolate_uv(point, face_vertices, face_uvs):
     v_coord = w * uv0[1] + u * uv1[1] + v * uv2[1]
     
     return u_coord, v_coord
+
+def interpolate_uv_improved(point, face_vertices, face_uvs):
+    """Improved UV interpolation that handles both triangles and quads"""
+    if len(face_vertices) < 3 or len(face_uvs) < 3:
+        return 0.5, 0.5  # Default UV
+    
+    # For triangles, use the original method
+    if len(face_vertices) == 3:
+        return interpolate_uv(point, face_vertices, face_uvs)
+    
+    # For quads, split into two triangles and find which one contains the point
+    if len(face_vertices) >= 4 and len(face_uvs) >= 4:
+        v0, v1, v2, v3 = face_vertices[:4]
+        uv0, uv1, uv2, uv3 = face_uvs[:4]
+        
+        # Triangle 1: v0, v1, v2
+        tri1_verts = np.array([v0, v1, v2])
+        tri1_uvs = [uv0, uv1, uv2]
+        
+        # Triangle 2: v0, v2, v3
+        tri2_verts = np.array([v0, v2, v3])
+        tri2_uvs = [uv0, uv2, uv3]
+        
+        # Check which triangle contains the point
+        if is_point_in_face(point, tri1_verts):
+            return interpolate_uv(point, tri1_verts, tri1_uvs)
+        elif is_point_in_face(point, tri2_verts):
+            return interpolate_uv(point, tri2_verts, tri2_uvs)
+        else:
+            # Point not in either triangle, use closest triangle
+            # Calculate distances to triangle centroids
+            tri1_center = np.mean(tri1_verts, axis=0)
+            tri2_center = np.mean(tri2_verts, axis=0)
+            
+            dist1 = np.linalg.norm(point - tri1_center)
+            dist2 = np.linalg.norm(point - tri2_center)
+            
+            if dist1 <= dist2:
+                return interpolate_uv(point, tri1_verts, tri1_uvs)
+            else:
+                return interpolate_uv(point, tri2_verts, tri2_uvs)
+    
+    # Fallback to triangle method for other cases
+    return interpolate_uv(point, face_vertices[:3], face_uvs[:3])
 
 def voxelize_mesh(vertices, faces, texture_coords, face_textures, face_materials, materials, texture_array, voxel_size=64):
     """Convert mesh to voxel grid with colors (complex version - kept for compatibility)"""
@@ -548,26 +654,33 @@ def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size
     
     print(f"Converting {obj_path} to voxels...")
     
-    # Parse OBJ file (simplified)
-    vertices, faces, texture_coords, face_textures = parse_obj_file(obj_path)
+    # Parse OBJ file (improved)
+    vertices, faces, texture_coords, face_textures, auto_texture_file = parse_obj_file(obj_path)
     print(f"Loaded {len(vertices)} vertices and {len(faces)} faces")
     print(f"Found {len(texture_coords)} texture coordinates")
     
     if len(vertices) == 0:
         raise ValueError("No vertices found in OBJ file")
     
-    # Load texture if provided
+    # Load texture if provided or found automatically
     texture_array = None
-    if texture_path and os.path.exists(texture_path):
-        print(f"Loading texture: {texture_path}")
-        texture_array = load_texture(texture_path)
+    final_texture_path = texture_path
+    
+    # If no texture provided but OBJ has MTL reference, use auto-detected texture
+    if not texture_path and auto_texture_file and os.path.exists(auto_texture_file):
+        final_texture_path = auto_texture_file
+        print(f"Auto-detected texture from MTL: {final_texture_path}")
+    
+    if final_texture_path and os.path.exists(final_texture_path):
+        print(f"Loading texture: {final_texture_path}")
+        texture_array = load_texture(final_texture_path)
         if texture_array is not None:
             print(f"Texture loaded: {texture_array.shape}")
             print(f"Texture color range: {texture_array.min()} - {texture_array.max()}")
         else:
             print("Failed to load texture, using default colors")
     else:
-        print("No texture provided, using default colors")
+        print("No texture provided or found, using default colors")
     
     # Use fixed voxel size for speed
     voxel_size = 64
