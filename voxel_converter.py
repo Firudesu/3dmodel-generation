@@ -121,117 +121,91 @@ def get_texture_color(texture_array, u, v):
     
     return tuple(np.clip(result.astype(int), 0, 255))
 
-def calculate_voxel_size_from_obj(vertices):
-    """Calculate voxel size based on actual OBJ model dimensions"""
+def calculate_voxel_dimensions_from_obj(vertices):
+    """Calculate proper voxel dimensions based on actual OBJ model dimensions"""
     if len(vertices) == 0:
-        return 64
+        return [64, 64, 64]
     
     # Find bounding box
     min_coords = vertices.min(axis=0)
     max_coords = vertices.max(axis=0)
     dimensions = max_coords - min_coords
     
-    # Get the longest dimension
-    max_dimension = dimensions.max()
+    print(f"Model bounding box: min={min_coords}, max={max_coords}")
+    print(f"Model dimensions: {dimensions}")
     
     # Handle zero dimensions (flat models)
-    if max_dimension == 0:
-        print("Warning: Model has zero dimensions, using default size")
-        return 64
+    for i in range(3):
+        if dimensions[i] == 0:
+            dimensions[i] = 0.01  # Minimum thickness
     
-    # Calculate voxel size based on actual model size
-    # Use 32 voxels per unit of model dimension (reduced for memory)
-    base_resolution = 32
-    voxel_size = int(base_resolution * max_dimension)
+    # Calculate voxel dimensions based on actual model size
+    # Use higher resolution for detailed models - 128 voxels per unit
+    base_resolution = 128
+    voxel_dims = []
     
-    # Ensure reasonable bounds (reduced max for memory)
-    voxel_size = max(16, min(voxel_size, 128))
+    for i in range(3):
+        dim_size = int(base_resolution * dimensions[i])
+        # Ensure reasonable bounds but allow for detailed models
+        voxel_dims.append(max(8, min(dim_size, 256)))
     
-    print(f"Model dimensions: {dimensions}")
-    print(f"Longest dimension: {max_dimension}")
-    print(f"Calculated voxel size: {voxel_size} (based on actual model size)")
+    print(f"Calculated voxel dimensions: {voxel_dims}")
     
-    return voxel_size
+    return voxel_dims
 
-def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size=64):
-    """Optimized voxelization with direct UV mapping from OBJ file"""
+def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_dims=None):
+    """Proper voxelization with correct dimensions and all faces processed"""
     if len(vertices) == 0:
-        return np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool), {}
+        return np.zeros((64, 64, 64), dtype=bool), {}
+    
+    # Calculate proper voxel dimensions if not provided
+    if voxel_dims is None:
+        voxel_dims = calculate_voxel_dimensions_from_obj(vertices)
     
     # Find bounding box
     min_coords = vertices.min(axis=0)
     max_coords = vertices.max(axis=0)
     dimensions = max_coords - min_coords
     
-    # Add padding
-    padding = dimensions * 0.1
+    # Add small padding to avoid edge issues
+    padding = dimensions * 0.05  # Reduced padding
     min_coords -= padding
     max_coords += padding
     dimensions = max_coords - min_coords
     
-    # Calculate voxel dimensions based on actual model dimensions
-    # Use a reasonable resolution that matches the model size
-    base_resolution = 32  # 32 voxels per unit
-    voxel_dims = []
-    for i in range(3):
-        if dimensions[i] > 0:
-            dim_size = int(base_resolution * dimensions[i])
-            voxel_dims.append(max(1, min(dim_size, 64)))  # Reasonable max for 2-unit model
-        else:
-            voxel_dims.append(1)  # Minimum 1 voxel for zero dimensions
+    # Calculate scale to voxel grid
+    scale = np.array(voxel_dims) / dimensions
     
-    # Scale to voxel grid
-    # Avoid division by zero for zero dimensions
-    scale = np.zeros(3)
-    for i in range(3):
-        if dimensions[i] > 0:
-            scale[i] = voxel_dims[i] / dimensions[i]
-        else:
-            scale[i] = 1  # Default scale for zero dimensions
-    
-    # Create voxel grid with actual model dimensions
+    # Create voxel grid with proper dimensions
     voxel_grid = np.zeros(tuple(voxel_dims), dtype=bool)
     voxel_colors = {}
     
     print(f"Voxel grid dimensions: {voxel_dims}")
-    print(f"Processing {len(faces)} faces...")
+    print(f"Model dimensions: {dimensions}")
+    print(f"Scale factors: {scale}")
+    print(f"Processing ALL {len(faces)} faces...")
     print(f"Texture coords available: {len(texture_coords)}")
     print(f"Face textures available: {len(face_textures)}")
     
-    # Process faces in smaller batches to avoid memory issues
-    batch_size = 100  # Much smaller batches
+    # Process ALL faces - no arbitrary limits
     total_faces = len(faces)
-    
-    # For very large models, use aggressive sampling to prevent memory issues
-    max_faces = 2000  # Reduced limit for memory safety
-    if total_faces > max_faces:
-        print(f"Large model detected ({total_faces} faces). Sampling {max_faces} faces for memory safety.")
-        # Sample faces evenly across the model instead of just taking the first 2000
-        step = total_faces // max_faces
-        faces = faces[::step][:max_faces]
-        face_textures = face_textures[::step][:max_faces] if face_textures else []
-        total_faces = len(faces)
+    batch_size = 1000  # Larger batches for efficiency
     
     for batch_start in range(0, total_faces, batch_size):
         batch_end = min(batch_start + batch_size, total_faces)
         batch_faces = faces[batch_start:batch_end]
         
-        print(f"Processing faces {batch_start}-{batch_end-1} of {total_faces}")
+        print(f"Processing faces {batch_start}-{batch_end-1} of {total_faces} ({100*batch_end/total_faces:.1f}%)")
         
-        # Early exit if processing is taking too long (reduced threshold for memory)
-        if batch_start > 0 and batch_start % 1000 == 0:
-            print(f"Processed {batch_start} faces, stopping early for memory safety...")
-            break
-            
-        # Process each face with direct UV mapping
+        # Process each face with improved rasterization
         for local_idx, face in enumerate(batch_faces):
             face_idx = batch_start + local_idx
             
             if len(face) < 3:
                 continue
                 
-            # Get face vertices
-            face_verts = vertices[face]
+            # Get face vertices (handle triangles and quads)
+            face_verts = vertices[face[:3]]  # Use first 3 vertices for triangle
             
             # Get UV coordinates for this face directly from OBJ
             face_uvs = None
@@ -242,61 +216,115 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
                 
                 face_tex = face_textures[face_idx]
                 if texture_coords and face_tex:
-                    face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
+                    face_uvs = []
+                    for tex_idx in face_tex[:3]:  # First 3 UV coords
+                        if tex_idx < len(texture_coords):
+                            face_uvs.append(texture_coords[tex_idx])
+                    if len(face_uvs) < 3:
+                        face_uvs = None
             
             # Transform to voxel space
             voxel_verts = (face_verts - min_coords) * scale
-            voxel_verts = np.clip(voxel_verts, 0, np.array(voxel_dims) - 1).astype(int)
+            voxel_verts = np.clip(voxel_verts, 0, np.array(voxel_dims) - 1)
             
-            # Get bounding box for this face
-            min_v = voxel_verts.min(axis=0)
-            max_v = voxel_verts.max(axis=0)
-            
-            # Skip faces that are too small
-            if (max_v - min_v).max() < 1:
-                continue
-            
-            # Fill voxels in the bounding box
-            for x in range(min_v[0], min(max_v[0] + 1, voxel_dims[0])):
-                for y in range(min_v[1], min(max_v[1] + 1, voxel_dims[1])):
-                    for z in range(min_v[2], min(max_v[2] + 1, voxel_dims[2])):
-                        # Skip if already filled
-                        if voxel_grid[x, y, z]:
-                            continue
-                            
-                        # Convert voxel position back to 3D space
-                        voxel_3d = np.array([x, y, z]) / scale + min_coords
-                        
-                        # Check if this voxel is inside the face
-                        if is_point_in_face(voxel_3d, face_verts):
-                            voxel_grid[x, y, z] = True
-                            
-                            # Use UV coordinates directly from OBJ file
-                            if face_uvs and len(face_uvs) >= 3:
-                                # Interpolate UV coordinates for this voxel
-                                u, v = interpolate_uv(voxel_3d, face_verts, face_uvs)
-                                color = get_texture_color(texture_array, u, v)
-                            else:
-                                # No UV coordinates - use face index for color variation
-                                color = get_face_color(face_idx)
-                            
-                            voxel_colors[(x, y, z)] = color
+            # Rasterize triangle using proper triangle rasterization
+            rasterize_triangle(voxel_grid, voxel_colors, voxel_verts, face_verts, 
+                             face_uvs, texture_array, face_idx, min_coords, scale)
         
-        # Force garbage collection between batches to free memory
-        import gc
-        gc.collect()
+        # Periodic progress update and memory cleanup
+        if (batch_start + batch_size) % 5000 == 0:
+            import gc
+            gc.collect()
     
-    # Simple flood fill for interior
+    print(f"Surface voxelization complete. Filled {np.sum(voxel_grid)} surface voxels.")
+    
+    # Fill interior using flood fill
+    print("Filling interior...")
     filled = flood_fill_exterior(voxel_grid)
     
     # Update colors for filled voxels (interior)
     new_voxels = np.argwhere(filled & ~voxel_grid)
+    print(f"Added {len(new_voxels)} interior voxels.")
+    
     for voxel in new_voxels:
         x, y, z = voxel
-        if not (x, y, z) in voxel_colors:
-            voxel_colors[(x, y, z)] = (128, 128, 128)
+        if (x, y, z) not in voxel_colors:
+            voxel_colors[(x, y, z)] = (128, 128, 128)  # Gray interior
+    
+    total_voxels = np.sum(filled)
+    print(f"Total voxels: {total_voxels}")
     
     return filled, voxel_colors
+
+def rasterize_triangle(voxel_grid, voxel_colors, voxel_verts, world_verts, face_uvs, texture_array, face_idx, min_coords, scale):
+    """Properly rasterize a triangle into the voxel grid using scanline algorithm"""
+    # Get triangle vertices in voxel space
+    v0, v1, v2 = voxel_verts
+    
+    # Get bounding box
+    min_x = max(0, int(min(v0[0], v1[0], v2[0])))
+    max_x = min(voxel_grid.shape[0] - 1, int(max(v0[0], v1[0], v2[0])) + 1)
+    min_y = max(0, int(min(v0[1], v1[1], v2[1])))
+    max_y = min(voxel_grid.shape[1] - 1, int(max(v0[1], v1[1], v2[1])) + 1)
+    min_z = max(0, int(min(v0[2], v1[2], v2[2])))
+    max_z = min(voxel_grid.shape[2] - 1, int(max(v0[2], v1[2], v2[2])) + 1)
+    
+    # Skip degenerate triangles
+    if max_x <= min_x or max_y <= min_y or max_z <= min_z:
+        return
+    
+    # For each voxel in the bounding box, test if it's inside the triangle
+    for x in range(min_x, max_x + 1):
+        for y in range(min_y, max_y + 1):
+            for z in range(min_z, max_z + 1):
+                # Skip if already filled
+                if voxel_grid[x, y, z]:
+                    continue
+                
+                # Test if voxel center is inside triangle
+                voxel_center = np.array([x + 0.5, y + 0.5, z + 0.5])
+                
+                if is_point_in_triangle_3d(voxel_center, v0, v1, v2):
+                    voxel_grid[x, y, z] = True
+                    
+                    # Calculate color
+                    if face_uvs and len(face_uvs) >= 3 and texture_array is not None:
+                        # Convert voxel position back to world space
+                        world_pos = voxel_center / scale + min_coords
+                        # Interpolate UV coordinates
+                        u, v = interpolate_uv(world_pos, world_verts, face_uvs)
+                        color = get_texture_color(texture_array, u, v)
+                    else:
+                        # Use face-based color
+                        color = get_face_color(face_idx)
+                    
+                    voxel_colors[(x, y, z)] = color
+
+def is_point_in_triangle_3d(point, v0, v1, v2):
+    """Test if a 3D point is inside a 3D triangle using barycentric coordinates"""
+    # Calculate vectors
+    v0v1 = v1 - v0
+    v0v2 = v2 - v0
+    v0p = point - v0
+    
+    # Calculate dot products
+    dot00 = np.dot(v0v2, v0v2)
+    dot01 = np.dot(v0v2, v0v1)
+    dot02 = np.dot(v0v2, v0p)
+    dot11 = np.dot(v0v1, v0v1)
+    dot12 = np.dot(v0v1, v0p)
+    
+    # Calculate barycentric coordinates
+    denom = dot00 * dot11 - dot01 * dot01
+    if abs(denom) < 1e-10:  # Degenerate triangle
+        return False
+        
+    inv_denom = 1.0 / denom
+    u = (dot11 * dot02 - dot01 * dot12) * inv_denom
+    v = (dot00 * dot12 - dot01 * dot02) * inv_denom
+    
+    # Check if point is in triangle
+    return (u >= 0) and (v >= 0) and (u + v <= 1)
 
 def get_face_color(face_idx):
     """Generate a color based on face index for debugging"""
@@ -609,20 +637,25 @@ def get_default_palette():
     
     return palette
 
-def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size=None):
-    """Main conversion function with simple texture support"""
+def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_dims=None):
+    """Main conversion function with proper voxelization"""
     if output_path is None:
         output_path = Path(obj_path).with_suffix('.vox')
     
     print(f"Converting {obj_path} to voxels...")
     
-    # Parse OBJ file (simplified)
+    # Parse OBJ file
     vertices, faces, texture_coords, face_textures = parse_obj_file(obj_path)
     print(f"Loaded {len(vertices)} vertices and {len(faces)} faces")
     print(f"Found {len(texture_coords)} texture coordinates")
     
     if len(vertices) == 0:
         raise ValueError("No vertices found in OBJ file")
+    
+    # Calculate proper voxel dimensions based on model
+    if voxel_dims is None:
+        voxel_dims = calculate_voxel_dimensions_from_obj(vertices)
+    print(f"Using voxel dimensions: {voxel_dims[0]}x{voxel_dims[1]}x{voxel_dims[2]}")
     
     # Load texture if provided
     texture_array = None
@@ -637,15 +670,10 @@ def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size
     else:
         print("No texture provided, using default colors")
     
-    # Use provided voxel size or calculate appropriate size
-    if voxel_size is None:
-        voxel_size = calculate_voxel_size_from_obj(vertices)
-    print(f"Using voxel size: {voxel_size}x{voxel_size}x{voxel_size}")
-    
-    # Voxelize with improved texture mapping
-    print(f"Voxelizing to {voxel_size}x{voxel_size}x{voxel_size} grid...")
-    print(f"Processing {len(faces)} faces with texture mapping...")
-    voxel_grid, voxel_colors = voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size)
+    # Voxelize with proper dimensions and all faces
+    print(f"Voxelizing to {voxel_dims[0]}x{voxel_dims[1]}x{voxel_dims[2]} grid...")
+    print(f"Processing ALL {len(faces)} faces with texture mapping...")
+    voxel_grid, voxel_colors = voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_dims)
     
     num_voxels = np.sum(voxel_grid)
     print(f"Generated {num_voxels} voxels")
