@@ -122,7 +122,7 @@ def get_texture_color(texture_array, u, v):
     return tuple(np.clip(result.astype(int), 0, 255))
 
 def calculate_voxel_size_from_obj(vertices):
-    """Calculate voxel size to match OBJ dimensions"""
+    """Calculate voxel size to match OBJ dimensions with reasonable limits"""
     if len(vertices) == 0:
         return 64
     
@@ -134,12 +134,21 @@ def calculate_voxel_size_from_obj(vertices):
     # Get the longest dimension
     max_dimension = dimensions.max()
     
-    # Scale voxel size to match the model's actual dimensions
-    # Use the longest dimension as the base for voxel size
-    voxel_size = int(max_dimension * 64)  # Scale factor of 64 per unit
+    # Use a more conservative scaling approach
+    # For models with dimensions around 2 units, use 64-128 voxels
+    if max_dimension < 1.0:
+        voxel_size = 64
+    elif max_dimension < 2.0:
+        voxel_size = 96
+    elif max_dimension < 5.0:
+        voxel_size = 128
+    elif max_dimension < 10.0:
+        voxel_size = 160
+    else:
+        voxel_size = 192
     
-    # Ensure reasonable bounds
-    voxel_size = max(32, min(512, voxel_size))  # Between 32 and 512
+    # Hard limit to prevent excessive memory usage
+    voxel_size = min(voxel_size, 256)
     
     print(f"Model dimensions: {dimensions}")
     print(f"Longest dimension: {max_dimension}")
@@ -148,7 +157,7 @@ def calculate_voxel_size_from_obj(vertices):
     return voxel_size
 
 def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size=64):
-    """Simple voxelization with direct UV mapping from OBJ file"""
+    """Optimized voxelization with direct UV mapping from OBJ file"""
     if len(vertices) == 0:
         return np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool), {}
     
@@ -172,55 +181,74 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     print(f"Texture coords available: {len(texture_coords)}")
     print(f"Face textures available: {len(face_textures)}")
     
-    # Process each face with direct UV mapping
-    for face_idx, face in enumerate(faces):
-        if len(face) < 3:
-            continue
+    # Process faces in batches to avoid memory issues
+    batch_size = 500
+    total_faces = len(faces)
+    
+    for batch_start in range(0, total_faces, batch_size):
+        batch_end = min(batch_start + batch_size, total_faces)
+        batch_faces = faces[batch_start:batch_end]
+        
+        print(f"Processing faces {batch_start}-{batch_end-1} of {total_faces}")
+        
+        # Process each face with direct UV mapping
+        for local_idx, face in enumerate(batch_faces):
+            face_idx = batch_start + local_idx
             
-        # Get face vertices
-        face_verts = vertices[face]
-        
-        # Get UV coordinates for this face directly from OBJ
-        face_uvs = None
-        if (texture_array is not None and 
-            face_idx < len(face_textures) and 
-            face_textures[face_idx] and 
-            len(face_textures[face_idx]) >= 3):
+            if len(face) < 3:
+                continue
+                
+            # Get face vertices
+            face_verts = vertices[face]
             
-            face_tex = face_textures[face_idx]
-            if texture_coords and face_tex:
-                face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
-                print(f"Face {face_idx}: UV coords = {face_uvs}")
-        
-        # Transform to voxel space
-        voxel_verts = (face_verts - min_coords) * scale
-        voxel_verts = np.clip(voxel_verts, 0, voxel_size - 1).astype(int)
-        
-        # Get bounding box for this face
-        min_v = voxel_verts.min(axis=0)
-        max_v = voxel_verts.max(axis=0)
-        
-        # Fill voxels in the bounding box
-        for x in range(min_v[0], min(max_v[0] + 1, voxel_size)):
-            for y in range(min_v[1], min(max_v[1] + 1, voxel_size)):
-                for z in range(min_v[2], min(max_v[2] + 1, voxel_size)):
-                    # Convert voxel position back to 3D space
-                    voxel_3d = np.array([x, y, z]) / scale + min_coords
-                    
-                    # Check if this voxel is inside the face
-                    if is_point_in_face(voxel_3d, face_verts):
-                        voxel_grid[x, y, z] = True
+            # Get UV coordinates for this face directly from OBJ
+            face_uvs = None
+            if (texture_array is not None and 
+                face_idx < len(face_textures) and 
+                face_textures[face_idx] and 
+                len(face_textures[face_idx]) >= 3):
+                
+                face_tex = face_textures[face_idx]
+                if texture_coords and face_tex:
+                    face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
+            
+            # Transform to voxel space
+            voxel_verts = (face_verts - min_coords) * scale
+            voxel_verts = np.clip(voxel_verts, 0, voxel_size - 1).astype(int)
+            
+            # Get bounding box for this face
+            min_v = voxel_verts.min(axis=0)
+            max_v = voxel_verts.max(axis=0)
+            
+            # Skip faces that are too small
+            if (max_v - min_v).max() < 1:
+                continue
+            
+            # Fill voxels in the bounding box
+            for x in range(min_v[0], min(max_v[0] + 1, voxel_size)):
+                for y in range(min_v[1], min(max_v[1] + 1, voxel_size)):
+                    for z in range(min_v[2], min(max_v[2] + 1, voxel_size)):
+                        # Skip if already filled
+                        if voxel_grid[x, y, z]:
+                            continue
+                            
+                        # Convert voxel position back to 3D space
+                        voxel_3d = np.array([x, y, z]) / scale + min_coords
                         
-                        # Use UV coordinates directly from OBJ file
-                        if face_uvs and len(face_uvs) >= 3:
-                            # Interpolate UV coordinates for this voxel
-                            u, v = interpolate_uv(voxel_3d, face_verts, face_uvs)
-                            color = get_texture_color(texture_array, u, v)
-                        else:
-                            # No UV coordinates - use face index for color variation
-                            color = get_face_color(face_idx)
-                        
-                        voxel_colors[(x, y, z)] = color
+                        # Check if this voxel is inside the face
+                        if is_point_in_face(voxel_3d, face_verts):
+                            voxel_grid[x, y, z] = True
+                            
+                            # Use UV coordinates directly from OBJ file
+                            if face_uvs and len(face_uvs) >= 3:
+                                # Interpolate UV coordinates for this voxel
+                                u, v = interpolate_uv(voxel_3d, face_verts, face_uvs)
+                                color = get_texture_color(texture_array, u, v)
+                            else:
+                                # No UV coordinates - use face index for color variation
+                                color = get_face_color(face_idx)
+                            
+                            voxel_colors[(x, y, z)] = color
     
     # Simple flood fill for interior
     filled = flood_fill_exterior(voxel_grid)
