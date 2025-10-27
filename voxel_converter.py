@@ -170,13 +170,13 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     dimensions = max_coords - min_coords
     
     # Calculate voxel dimensions based on actual model dimensions
-    # Use reduced resolution for memory safety
-    base_resolution = 32
+    # Use a reasonable resolution that matches the model size
+    base_resolution = 32  # 32 voxels per unit
     voxel_dims = []
     for i in range(3):
         if dimensions[i] > 0:
             dim_size = int(base_resolution * dimensions[i])
-            voxel_dims.append(max(1, min(dim_size, 128)))  # Reduced max for memory
+            voxel_dims.append(max(1, min(dim_size, 64)))  # Reasonable max for 2-unit model
         else:
             voxel_dims.append(1)  # Minimum 1 voxel for zero dimensions
     
