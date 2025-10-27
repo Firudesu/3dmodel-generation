@@ -1,0 +1,61 @@
+# Meshy-style OBJ with proper UV mapping
+# This simulates what Meshy AI would generate
+v -0.5 -0.5 -0.5
+v  0.5 -0.5 -0.5
+v  0.5  0.5 -0.5
+v -0.5  0.5 -0.5
+v -0.5 -0.5  0.5
+v  0.5 -0.5  0.5
+v  0.5  0.5  0.5
+v -0.5  0.5  0.5
+
+# Texture coordinates - different UV mapping for each face
+# Front face (z = -0.5)
+vt 0.0 0.0
+vt 1.0 0.0
+vt 1.0 1.0
+vt 0.0 1.0
+
+# Back face (z = 0.5) - mirrored
+vt 1.0 0.0
+vt 0.0 0.0
+vt 0.0 1.0
+vt 1.0 1.0
+
+# Right face (x = 0.5)
+vt 0.0 0.0
+vt 1.0 0.0
+vt 1.0 1.0
+vt 0.0 1.0
+
+# Left face (x = -0.5) - mirrored
+vt 1.0 0.0
+vt 0.0 0.0
+vt 0.0 1.0
+vt 1.0 1.0
+
+# Top face (y = 0.5)
+vt 0.0 0.0
+vt 1.0 0.0
+vt 1.0 1.0
+vt 0.0 1.0
+
+# Bottom face (y = -0.5) - rotated
+vt 0.0 1.0
+vt 1.0 1.0
+vt 1.0 0.0
+vt 0.0 0.0
+
+# Faces with proper UV mapping
+# Front face
+f 1/1 2/2 3/3 4/4
+# Back face
+f 5/5 8/6 7/7 6/8
+# Right face
+f 2/9 6/10 7/11 3/12
+# Left face
+f 4/13 8/14 5/15 1/16
+# Top face
+f 3/17 7/18 8/19 4/20
+# Bottom face
+f 1/21 5/22 6/23 2/24

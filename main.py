@@ -316,114 +316,55 @@ def extract_model_files(model_path):
     return obj_file, texture_files
 
 def convert_to_voxel(obj_file_path, texture_files=None):
-    """Use Playwright to convert OBJ to VOX using Drububu voxelizer"""
-    print("🔄 Converting OBJ to VOX using Drububu voxelizer...")
+    """Use local voxel_converter.py to convert OBJ to VOX with proper UV mapping"""
+    print("🔄 Converting OBJ to VOX using local voxel converter with UV mapping...")
     
-    with sync_playwright() as p:
-        # Launch browser with download handling
-        browser = p.chromium.launch(headless=False)  # Set to False to see the process
-        context = browser.new_context(accept_downloads=True)
-        page = context.new_page()
+    try:
+        # Import the local voxel converter
+        from voxel_converter import convert_obj_to_vox
         
-        try:
-            # Navigate to Drububu voxelizer
-            print("  Opening Drububu voxelizer...")
-            page.goto("https://drububu.com/miscellaneous/voxelizer/?out=obj")
-            
-            # Wait for page to load
-            page.wait_for_load_state("networkidle")
-            
-            # Upload the OBJ file
-            print("  Uploading OBJ file...")
-            try:
-                file_input = page.locator('input[type="file"]#file_input')
-                file_input.set_input_files(str(obj_file_path))
-            except:
-                # Fallback: try the first file input that accepts .obj files
-                file_input = page.locator('input[type="file"][accept*=".obj"]').first
-                file_input.set_input_files(str(obj_file_path))
-            
-            # Wait for OBJ processing
-            print("  Waiting for OBJ processing...")
-            page.wait_for_timeout(5000)
-            
-            # Upload texture file if available
-            if texture_files:
-                print("  Uploading texture file...")
-                try:
-                    texture_input = page.locator('input[type="file"]#file_input_texture')
-                    texture_input.set_input_files(str(texture_files[0]))
-                    print(f"  Uploaded texture: {texture_files[0].name}")
-                except:
-                    print("  Could not upload texture file")
-            
-            # Wait for processing
-            print("  Waiting for final processing...")
-            page.wait_for_timeout(10000)
-            
-            # Set up download handling
-            with page.expect_download() as download_info:
-                # Look for download button or link
-                print("  Looking for download option...")
-                
-                # Try different selectors for download button
-                download_selectors = [
-                    'text=Download',
-                    'text=OBJ',
-                    'a[href*=".obj"]',
-                    'button:has-text("Download")',
-                    'input[type="submit"]'
-                ]
-                
-                download_clicked = False
-                for selector in download_selectors:
-                    try:
-                        element = page.locator(selector).first
-                        if element.is_visible():
-                            print(f"  Found download element: {selector}")
-                            element.click()
-                            download_clicked = True
-                            break
-                    except:
-                        continue
-                
-                if not download_clicked:
-                    # Try JavaScript approach
-                    print("  Trying JavaScript download trigger...")
-                    page.evaluate("""
-                        // Look for any element that might trigger download
-                        const elements = document.querySelectorAll('a, button, input[type="submit"]');
-                        for (let el of elements) {
-                            const text = el.textContent.toLowerCase();
-                            const href = el.href || '';
-                            if (text.includes('download') || text.includes('obj') || 
-                                href.includes('.obj') || href.includes('download')) {
-                                el.click();
-                                break;
-                            }
-                        }
-                    """)
-            
-            # Handle the download
-            download = download_info.value
-            vox_file_path = Path(DOWNLOAD_FOLDER) / "model.vox"
-            download.save_as(vox_file_path)
-            
-            print(f"✓ VOX file downloaded to {vox_file_path}")
-            
-        except Exception as e:
-            print(f"  Error during voxel conversion: {e}")
-            print("  Creating placeholder VOX file...")
-            
-            # Create a placeholder file if download fails
-            vox_file_path = Path(DOWNLOAD_FOLDER) / "model.vox"
-            with open(vox_file_path, 'w') as f:
-                f.write("# Placeholder VOX file\n# Conversion failed - using fallback")
-            
-        finally:
-            browser.close()
-    
-    return vox_file_path
+        # Determine output path
+        vox_file_path = VOXEL_OUTPUT_DIR / f"{Path(obj_file_path).stem}.vox"
+        
+        # Find texture file if available
+        texture_path = None
+        if texture_files and len(texture_files) > 0:
+            texture_path = str(texture_files[0])
+            print(f"  Using texture file: {texture_path}")
+        else:
+            # Look for texture files in the same directory as the OBJ
+            obj_dir = Path(obj_file_path).parent
+            for ext in ['.png', '.jpg', '.jpeg']:
+                texture_candidate = obj_dir / f"{Path(obj_file_path).stem}{ext}"
+                if texture_candidate.exists():
+                    texture_path = str(texture_candidate)
+                    print(f"  Found texture file: {texture_path}")
+                    break
+        
+        if not texture_path:
+            print("  No texture file found - will use default colors")
+        
+        # Convert using local converter with UV mapping
+        print(f"  Converting {obj_file_path} to {vox_file_path}...")
+        result_path = convert_obj_to_vox(
+            obj_path=str(obj_file_path),
+            texture_path=texture_path,
+            output_path=str(vox_file_path)
+        )
+        
+        print(f"✓ VOX file created: {result_path}")
+        return Path(result_path)
+        
+    except Exception as e:
+        print(f"  Error during voxel conversion: {e}")
+        print("  Creating placeholder VOX file...")
+        
+        # Create a placeholder file if conversion fails
+        vox_file_path = VOXEL_OUTPUT_DIR / "model.vox"
+        with open(vox_file_path, 'w') as f:
+            f.write("# Placeholder VOX file\n# Conversion failed - using fallback")
+        
+        return vox_file_path
 
 def main():
     """Main function to orchestrate the entire process"""
