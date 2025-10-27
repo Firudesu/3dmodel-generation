@@ -194,7 +194,8 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             
             face_tex = face_textures[face_idx]
             if texture_coords and face_tex:
-                face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
+                # Use all available UV coordinates for the face (handles both triangles and quads)
+                face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex if tex_idx < len(texture_coords)]
                 print(f"Face {face_idx}: UV coords = {face_uvs}")
         
         # Transform to voxel space
@@ -280,13 +281,36 @@ def is_point_in_face(point, face_vertices):
     return (u >= 0) and (v >= 0) and (u + v <= 1)
 
 def interpolate_uv(point, face_vertices, face_uvs):
-    """Interpolate UV coordinates for a point inside a triangular face using barycentric coordinates"""
+    """Interpolate UV coordinates for a point inside a face using barycentric coordinates"""
     if len(face_vertices) < 3 or len(face_uvs) < 3:
         return 0.5, 0.5  # Default UV
     
-    v0, v1, v2 = face_vertices[:3]
-    uv0, uv1, uv2 = face_uvs[:3]
-    
+    # Handle quads by triangulating them
+    if len(face_vertices) == 4 and len(face_uvs) == 4:
+        # For quads, we need to determine which triangle the point is in
+        # We'll use the first triangle (vertices 0, 1, 2) and check if the point is inside
+        # If not, we'll use the second triangle (vertices 0, 2, 3)
+        
+        # Try first triangle (0, 1, 2)
+        v0, v1, v2 = face_vertices[0], face_vertices[1], face_vertices[2]
+        uv0, uv1, uv2 = face_uvs[0], face_uvs[1], face_uvs[2]
+        
+        # Check if point is in first triangle
+        if is_point_in_face(point, np.array([v0, v1, v2])):
+            return interpolate_uv_triangle(point, v0, v1, v2, uv0, uv1, uv2)
+        else:
+            # Use second triangle (0, 2, 3)
+            v0, v1, v2 = face_vertices[0], face_vertices[2], face_vertices[3]
+            uv0, uv1, uv2 = face_uvs[0], face_uvs[2], face_uvs[3]
+            return interpolate_uv_triangle(point, v0, v1, v2, uv0, uv1, uv2)
+    else:
+        # Handle triangles
+        v0, v1, v2 = face_vertices[0], face_vertices[1], face_vertices[2]
+        uv0, uv1, uv2 = face_uvs[0], face_uvs[1], face_uvs[2]
+        return interpolate_uv_triangle(point, v0, v1, v2, uv0, uv1, uv2)
+
+def interpolate_uv_triangle(point, v0, v1, v2, uv0, uv1, uv2):
+    """Interpolate UV coordinates for a point inside a triangular face using barycentric coordinates"""
     # Calculate barycentric coordinates
     v0v1 = v1 - v0
     v0v2 = v2 - v0
