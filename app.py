@@ -276,6 +276,10 @@ def extract_model_files(model_path):
 
 def convert_to_voxel(obj_file_path, texture_path=None, mtl_path=None):
     """Convert OBJ to VOX using Python voxelizer with MTL and texture support"""
+    print(f"=== CONVERT_TO_VOXEL CALLED ===")
+    print(f"OBJ file: {obj_file_path}")
+    print(f"Texture file: {texture_path}")
+    print(f"MTL file: {mtl_path}")
     print(f"Starting voxel conversion for: {obj_file_path}")
     update_status("Converting to voxel...", 95, "Voxelizing 3D model with texture")
     
@@ -850,37 +854,53 @@ def download_file(filename):
 @app.route('/convert/manual', methods=['POST'])
 def manual_voxel_convert():
     """Handle manual voxel conversion"""
+    print("=== MANUAL VOXEL CONVERSION STARTED ===")
     try:
         if 'obj_file' not in request.files:
+            print("ERROR: No OBJ file provided")
             return jsonify({'error': 'No OBJ file provided'}), 400
         
         obj_file = request.files['obj_file']
         mtl_file = request.files.get('mtl_file')
         texture_file = request.files.get('texture_file')
         
+        print(f"Files received:")
+        print(f"  OBJ: {obj_file.filename if obj_file else 'None'}")
+        print(f"  MTL: {mtl_file.filename if mtl_file else 'None'}")
+        print(f"  Texture: {texture_file.filename if texture_file else 'None'}")
+        
         # Save uploaded files
         obj_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(obj_file.filename))
         obj_file.save(obj_path)
+        print(f"OBJ file saved to: {obj_path}")
         
         mtl_path = None
         if mtl_file:
             mtl_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(mtl_file.filename))
             mtl_file.save(mtl_path)
+            print(f"MTL file saved to: {mtl_path}")
         
         texture_path = None
         if texture_file:
             texture_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(texture_file.filename))
             texture_file.save(texture_path)
+            print(f"Texture file saved to: {texture_path}")
         
         # Create a basic VOX file
+        print("Starting voxel conversion...")
         try:
             vox_path = convert_to_voxel(obj_path, texture_path, mtl_path)
+            print(f"Voxel conversion successful: {vox_path}")
             return jsonify({
                 'success': True,
                 'vox_file': os.path.basename(vox_path),
                 'message': 'VOX file created successfully with texture applied.'
             })
         except Exception as e:
+            print(f"Voxel conversion failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
             # Even if it fails, try to create a basic VOX
             vox_file_path = os.path.join(app.config['OUTPUT_FOLDER'], 'model.vox')
             vox_header = b'VOX \x96\x00\x00\x00MAIN\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -890,7 +910,7 @@ def manual_voxel_convert():
             return jsonify({
                 'success': True,
                 'vox_file': 'model.vox',
-                'message': 'Created basic VOX file structure.'
+                'message': f'Basic VOX file created (conversion error: {str(e)})'
             })
             
     except Exception as e:
