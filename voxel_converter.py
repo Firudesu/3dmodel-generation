@@ -154,7 +154,7 @@ def calculate_voxel_size_from_obj(vertices):
     return voxel_size
 
 def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size=64):
-    """Optimized voxelization with direct UV mapping from OBJ file"""
+    """Efficient voxelization using ray casting approach"""
     if len(vertices) == 0:
         return np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool), {}
     
@@ -170,7 +170,6 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     dimensions = max_coords - min_coords
     
     # Calculate voxel dimensions based on actual model dimensions
-    # Use a reasonable resolution that matches the model size
     base_resolution = 32  # 32 voxels per unit
     voxel_dims = []
     for i in range(3):
@@ -181,7 +180,6 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             voxel_dims.append(1)  # Minimum 1 voxel for zero dimensions
     
     # Scale to voxel grid
-    # Avoid division by zero for zero dimensions
     scale = np.zeros(3)
     for i in range(3):
         if dimensions[i] > 0:
@@ -189,102 +187,24 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         else:
             scale[i] = 1  # Default scale for zero dimensions
     
-    # Create voxel grid with actual model dimensions
+    # Create voxel grid
     voxel_grid = np.zeros(tuple(voxel_dims), dtype=bool)
     voxel_colors = {}
     
     print(f"Voxel grid dimensions: {voxel_dims}")
-    print(f"Processing {len(faces)} faces...")
-    print(f"Texture coords available: {len(texture_coords)}")
-    print(f"Face textures available: {len(face_textures)}")
+    print(f"Processing {len(faces)} faces using efficient ray casting...")
     
-    # Process faces in smaller batches to avoid memory issues
-    batch_size = 100  # Much smaller batches
-    total_faces = len(faces)
-    
-    # For very large models, use reasonable sampling to prevent memory issues
-    max_faces = 10000  # Increased limit for better quality
-    if total_faces > max_faces:
-        print(f"Large model detected ({total_faces} faces). Sampling {max_faces} faces for memory safety.")
-        # Sample faces evenly across the model instead of just taking the first 10000
-        step = total_faces // max_faces
+    # Limit faces for reasonable processing time
+    max_faces = 5000  # Reasonable limit for efficiency
+    if len(faces) > max_faces:
+        print(f"Large model detected ({len(faces)} faces). Sampling {max_faces} faces for efficiency.")
+        step = len(faces) // max_faces
         faces = faces[::step][:max_faces]
         face_textures = face_textures[::step][:max_faces] if face_textures else []
-        total_faces = len(faces)
     
-    for batch_start in range(0, total_faces, batch_size):
-        batch_end = min(batch_start + batch_size, total_faces)
-        batch_faces = faces[batch_start:batch_end]
-        
-        print(f"Processing faces {batch_start}-{batch_end-1} of {total_faces}")
-        
-        # Early exit if processing is taking too long (increased threshold for better quality)
-        if batch_start > 0 and batch_start % 5000 == 0:
-            print(f"Processed {batch_start} faces, stopping early for memory safety...")
-            break
-            
-        # Process each face with direct UV mapping
-        for local_idx, face in enumerate(batch_faces):
-            face_idx = batch_start + local_idx
-            
-            if len(face) < 3:
-                continue
-                
-            # Get face vertices
-            face_verts = vertices[face]
-            
-            # Get UV coordinates for this face directly from OBJ
-            face_uvs = None
-            if (texture_array is not None and 
-                face_idx < len(face_textures) and 
-                face_textures[face_idx] and 
-                len(face_textures[face_idx]) >= 3):
-                
-                face_tex = face_textures[face_idx]
-                if texture_coords and face_tex:
-                    face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
-            
-            # Transform to voxel space
-            voxel_verts = (face_verts - min_coords) * scale
-            voxel_verts = np.clip(voxel_verts, 0, np.array(voxel_dims) - 1).astype(int)
-            
-            # Get bounding box for this face
-            min_v = voxel_verts.min(axis=0)
-            max_v = voxel_verts.max(axis=0)
-            
-            # Skip faces that are too small
-            if (max_v - min_v).max() < 1:
-                continue
-            
-            # Fill voxels in the bounding box with improved sampling
-            for x in range(min_v[0], min(max_v[0] + 1, voxel_dims[0])):
-                for y in range(min_v[1], min(max_v[1] + 1, voxel_dims[1])):
-                    for z in range(min_v[2], min(max_v[2] + 1, voxel_dims[2])):
-                        # Skip if already filled
-                        if voxel_grid[x, y, z]:
-                            continue
-                            
-                        # Convert voxel position back to 3D space
-                        voxel_3d = np.array([x, y, z]) / scale + min_coords
-                        
-                        # Check if this voxel is inside the face with improved algorithm
-                        if is_point_in_face_improved(voxel_3d, face_verts):
-                            voxel_grid[x, y, z] = True
-                            
-                            # Use UV coordinates directly from OBJ file
-                            if face_uvs and len(face_uvs) >= 3:
-                                # Interpolate UV coordinates for this voxel
-                                u, v = interpolate_uv(voxel_3d, face_verts, face_uvs)
-                                color = get_texture_color(texture_array, u, v)
-                            else:
-                                # No UV coordinates - use face index for color variation
-                                color = get_face_color(face_idx)
-                            
-                            voxel_colors[(x, y, z)] = color
-        
-        # Force garbage collection between batches to free memory
-        import gc
-        gc.collect()
+    # Use efficient ray casting approach
+    voxelize_with_ray_casting(vertices, faces, texture_coords, face_textures, texture_array, 
+                             min_coords, scale, voxel_dims, voxel_grid, voxel_colors)
     
     # Improved flood fill for interior
     filled = flood_fill_exterior_improved(voxel_grid)
@@ -294,10 +214,106 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     for voxel in new_voxels:
         x, y, z = voxel
         if not (x, y, z) in voxel_colors:
-            # Use a darker gray for interior voxels
             voxel_colors[(x, y, z)] = (96, 96, 96)
     
     return filled, voxel_colors
+
+def voxelize_with_ray_casting(vertices, faces, texture_coords, face_textures, texture_array, 
+                             min_coords, scale, voxel_dims, voxel_grid, voxel_colors):
+    """Efficient voxelization using ray casting from each voxel position"""
+    print("Using ray casting for efficient voxelization...")
+    
+    # Process each voxel position
+    for x in range(voxel_dims[0]):
+        if x % 10 == 0:  # Progress indicator
+            print(f"Processing slice {x}/{voxel_dims[0]}")
+        
+        for y in range(voxel_dims[1]):
+            for z in range(voxel_dims[2]):
+                # Convert voxel position to 3D space
+                voxel_3d = np.array([x, y, z]) / scale + min_coords
+                
+                # Cast ray and count intersections
+                intersections = 0
+                closest_face = None
+                closest_distance = float('inf')
+                
+                # Check intersection with each face
+                for face_idx, face in enumerate(faces):
+                    if len(face) < 3:
+                        continue
+                    
+                    face_verts = vertices[face]
+                    
+                    # Simple ray-triangle intersection test
+                    if ray_triangle_intersection(voxel_3d, face_verts):
+                        intersections += 1
+                        
+                        # Find closest face for color assignment
+                        face_center = np.mean(face_verts, axis=0)
+                        distance = np.linalg.norm(voxel_3d - face_center)
+                        if distance < closest_distance:
+                            closest_distance = distance
+                            closest_face = face_idx
+                
+                # If odd number of intersections, point is inside
+                if intersections % 2 == 1:
+                    voxel_grid[x, y, z] = True
+                    
+                    # Assign color from closest face
+                    if closest_face is not None and texture_array is not None:
+                        face = faces[closest_face]
+                        face_tex = face_textures[closest_face] if closest_face < len(face_textures) else []
+                        
+                        if face_tex and len(face_tex) >= 3 and texture_coords:
+                            face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
+                            if face_uvs:
+                                u, v = interpolate_uv(voxel_3d, vertices[face], face_uvs)
+                                color = get_texture_color(texture_array, u, v)
+                            else:
+                                color = get_face_color(closest_face)
+                        else:
+                            color = get_face_color(closest_face)
+                    else:
+                        color = (128, 128, 128)  # Default gray
+                    
+                    voxel_colors[(x, y, z)] = color
+
+def ray_triangle_intersection(ray_origin, triangle_vertices):
+    """Simple ray-triangle intersection test using ray casting from +X direction"""
+    if len(triangle_vertices) < 3:
+        return False
+    
+    v0, v1, v2 = triangle_vertices[:3]
+    
+    # Ray direction (cast along +X axis)
+    ray_dir = np.array([1.0, 0.0, 0.0])
+    
+    # Möller-Trumbore algorithm
+    edge1 = v1 - v0
+    edge2 = v2 - v0
+    h = np.cross(ray_dir, edge2)
+    a = np.dot(edge1, h)
+    
+    if abs(a) < 1e-10:
+        return False  # Ray is parallel to triangle
+    
+    f = 1.0 / a
+    s = ray_origin - v0
+    u = f * np.dot(s, h)
+    
+    if u < 0.0 or u > 1.0:
+        return False
+    
+    q = np.cross(s, edge1)
+    v = f * np.dot(ray_dir, q)
+    
+    if v < 0.0 or u + v > 1.0:
+        return False
+    
+    t = f * np.dot(edge2, q)
+    
+    return t > 0.0  # Intersection is in front of ray origin
 
 def get_face_color(face_idx):
     """Generate a color based on face index for debugging"""
