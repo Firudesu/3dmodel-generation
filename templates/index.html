@@ -307,11 +307,18 @@
                 <input type="file" id="objInput" accept=".obj">
             </div>
             
+            <div class="upload-area" id="uploadAreaMtl">
+                <div class="upload-icon">📋</div>
+                <p><strong>Drop MTL file here (recommended)</strong></p>
+                <p style="color: #999; font-size: 14px;">Material library file</p>
+                <input type="file" id="mtlInput" accept=".mtl">
+            </div>
+            
             <div class="upload-area" id="uploadAreaTexture">
                 <div class="upload-icon">🎨</div>
                 <p><strong>Drop texture file here (optional)</strong></p>
-                <p style="color: #999; font-size: 14px;">JPG, PNG, or MTL file</p>
-                <input type="file" id="textureInput" accept=".jpg,.jpeg,.png,.mtl">
+                <p style="color: #999; font-size: 14px;">JPG, PNG files (if MTL doesn't work)</p>
+                <input type="file" id="textureInput" accept=".jpg,.jpeg,.png">
             </div>
             
             <button class="btn btn-secondary" id="convertBtn" disabled>🔧 Convert to Voxel</button>
@@ -498,6 +505,8 @@
         // Right Panel: Voxel Conversion
         const uploadAreaObj = document.getElementById('uploadAreaObj');
         const objInput = document.getElementById('objInput');
+        const uploadAreaMtl = document.getElementById('uploadAreaMtl');
+        const mtlInput = document.getElementById('mtlInput');
         const uploadAreaTexture = document.getElementById('uploadAreaTexture');
         const textureInput = document.getElementById('textureInput');
         const convertBtn = document.getElementById('convertBtn');
@@ -508,6 +517,7 @@
         const voxelDownload = document.getElementById('voxelDownload');
         
         let selectedObj = null;
+        let selectedMtl = null;
         let selectedTexture = null;
         
         // OBJ file handling
@@ -518,6 +528,22 @@
             if (file && file.name.endsWith('.obj')) {
                 selectedObj = file;
                 uploadAreaObj.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <p><strong>${file.name}</strong></p>
+                    <p style="color: #999; font-size: 14px;">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                `;
+                checkConvertReady();
+            }
+        });
+        
+        // MTL file handling
+        uploadAreaMtl.addEventListener('click', () => mtlInput.click());
+        
+        mtlInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.name.endsWith('.mtl')) {
+                selectedMtl = file;
+                uploadAreaMtl.innerHTML = `
                     <div class="upload-icon">✅</div>
                     <p><strong>${file.name}</strong></p>
                     <p style="color: #999; font-size: 14px;">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
@@ -551,6 +577,9 @@
             
             const formData = new FormData();
             formData.append('obj_file', selectedObj);
+            if (selectedMtl) {
+                formData.append('mtl_file', selectedMtl);
+            }
             if (selectedTexture) {
                 formData.append('texture_file', selectedTexture);
             }

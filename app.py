@@ -864,11 +864,17 @@ def manual_voxel_convert():
             return jsonify({'error': 'No OBJ file provided'}), 400
         
         obj_file = request.files['obj_file']
+        mtl_file = request.files.get('mtl_file')
         texture_file = request.files.get('texture_file')
         
         # Save uploaded files
         obj_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(obj_file.filename))
         obj_file.save(obj_path)
+        
+        mtl_path = None
+        if mtl_file:
+            mtl_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(mtl_file.filename))
+            mtl_file.save(mtl_path)
         
         texture_path = None
         if texture_file:
