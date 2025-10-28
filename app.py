@@ -274,8 +274,8 @@ def extract_model_files(model_path):
         print(f"Unknown format {file_extension}: {model_file}")
         return model_file, []
 
-def convert_to_voxel(obj_file_path, texture_files=None):
-    """Convert OBJ to VOX using Python voxelizer with texture support"""
+def convert_to_voxel(obj_file_path, texture_path=None, mtl_path=None):
+    """Convert OBJ to VOX using Python voxelizer with MTL and texture support"""
     print(f"Starting voxel conversion for: {obj_file_path}")
     update_status("Converting to voxel...", 95, "Voxelizing 3D model with texture")
     
@@ -287,22 +287,13 @@ def convert_to_voxel(obj_file_path, texture_files=None):
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from voxel_converter import convert_obj_to_vox
         
-        print("Using Python voxel converter with texture support...")
+        print("Using Python voxel converter with MTL and texture support...")
         
-        # Find PNG texture file if available
-        texture_path = None
-        if texture_files:
-            for tex_file in texture_files:
-                if tex_file and os.path.exists(tex_file) and tex_file.lower().endswith('.png'):
-                    texture_path = tex_file
-                    print(f"Found texture file: {texture_path}")
-                    break
-        
-        # Convert with automatic size detection (defaults to 64x64x64)
-        # The converter will use OBJ dimensions to determine size
+        # Convert with MTL and texture support
         result_path = convert_obj_to_vox(
             obj_file_path, 
             texture_path=texture_path,
+            mtl_path=mtl_path,
             output_path=vox_file_path,
             voxel_size=None  # Auto-determine from OBJ, defaults to 64
         )
@@ -883,7 +874,7 @@ def manual_voxel_convert():
         
         # Create a basic VOX file
         try:
-            vox_path = convert_to_voxel(obj_path, [texture_path] if texture_path else None)
+            vox_path = convert_to_voxel(obj_path, texture_path, mtl_path)
             return jsonify({
                 'success': True,
                 'vox_file': os.path.basename(vox_path),
