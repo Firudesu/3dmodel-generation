@@ -469,7 +469,14 @@ def is_point_in_face(point, face_vertices):
     dot12 = np.dot(v0v1, v0p)
     
     # Calculate barycentric coordinates
-    inv_denom = 1 / (dot00 * dot11 - dot01 * dot01)
+    denom = dot00 * dot11 - dot01 * dot01
+    
+    # Check for degenerate triangle (zero area)
+    if abs(denom) < 1e-10:
+        # Degenerate triangle - point is not inside
+        return False
+    
+    inv_denom = 1 / denom
     u = (dot11 * dot02 - dot01 * dot12) * inv_denom
     v = (dot00 * dot12 - dot01 * dot02) * inv_denom
     
@@ -497,7 +504,14 @@ def interpolate_uv(point, face_vertices, face_uvs):
     dot12 = np.dot(v0v1, v0p)
     
     # Calculate barycentric coordinates
-    inv_denom = 1 / (dot00 * dot11 - dot01 * dot01)
+    denom = dot00 * dot11 - dot01 * dot01
+    
+    # Check for degenerate triangle (zero area)
+    if abs(denom) < 1e-10:
+        # Degenerate triangle - return center of triangle
+        return 0.5, 0.5
+    
+    inv_denom = 1 / denom
     u = (dot11 * dot02 - dot01 * dot12) * inv_denom
     v = (dot00 * dot12 - dot01 * dot02) * inv_denom
     w = 1 - u - v
