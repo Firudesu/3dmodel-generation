@@ -306,7 +306,7 @@ def calculate_voxel_size_from_obj(vertices):
     return voxel_size
 
 def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture_array, voxel_size=64):
-    """Highly optimized voxelization with spatial partitioning and early termination"""
+    """Efficient voxelization based on Eisenwave/obj2voxel approach"""
     if len(vertices) == 0:
         return np.zeros((voxel_size, voxel_size, voxel_size), dtype=bool), {}
     
@@ -316,12 +316,12 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
     dimensions = max_coords - min_coords
     
     # Add small padding
-    padding = dimensions * 0.05  # Reduced padding
+    padding = dimensions * 0.05
     min_coords -= padding
     max_coords += padding
     dimensions = max_coords - min_coords
     
-    # Use fixed voxel size for performance - cap at 64 for speed
+    # Use fixed voxel size for performance
     voxel_size = min(64, max(32, voxel_size))
     voxel_dims = [voxel_size, voxel_size, voxel_size]
     
@@ -333,22 +333,30 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         else:
             scale[i] = 1.0
     
-    print(f"Optimized voxel grid: {voxel_dims} (processing {len(faces)} faces)")
+    print(f"Voxelizing {len(faces)} faces to {voxel_dims} grid...")
     
     # Initialize voxel grid
     voxel_grid = np.zeros(voxel_dims, dtype=bool)
     voxel_colors = {}
     
-    # Pre-compute face data for efficiency
-    face_data = []
+    # Process each face individually (like Eisenwave approach)
+    faces_processed = 0
     for i, face in enumerate(faces):
         if len(face) < 3:
             continue
             
+        faces_processed += 1
+        if faces_processed % 1000 == 0:
+            print(f"Processing face {faces_processed}/{len(faces)}")
+            
+        # Get face vertices
         face_verts = vertices[face]
+        
+        # Transform to voxel space
         voxel_verts = (face_verts - min_coords) * scale
         voxel_verts = np.clip(voxel_verts, 0, np.array(voxel_dims) - 1).astype(int)
         
+        # Get face bounding box
         min_v = voxel_verts.min(axis=0)
         max_v = voxel_verts.max(axis=0)
         
@@ -356,7 +364,7 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
         if (max_v - min_v).max() < 1:
             continue
             
-        # Pre-compute face UV data
+        # Get UV coordinates for this face
         face_uvs = None
         if (texture_array is not None and 
             i < len(face_textures) and 
@@ -367,62 +375,30 @@ def voxelize_mesh_simple(vertices, faces, texture_coords, face_textures, texture
             if texture_coords and face_tex:
                 face_uvs = [texture_coords[tex_idx] for tex_idx in face_tex[:3] if tex_idx < len(texture_coords)]
         
-        face_data.append((face_verts, voxel_verts, face_uvs, min_v, max_v))
+        # Process voxels in the face's bounding box
+        for x in range(max(0, min_v[0]), min(voxel_dims[0], max_v[0] + 1)):
+            for y in range(max(0, min_v[1]), min(voxel_dims[1], max_v[1] + 1)):
+                for z in range(max(0, min_v[2]), min(voxel_dims[2], max_v[2] + 1)):
+                    if voxel_grid[x, y, z]:
+                        continue
+                        
+                    # Convert voxel center to 3D space
+                    voxel_center = np.array([x + 0.5, y + 0.5, z + 0.5]) / scale + min_coords
+                    
+                    # Check if voxel center is inside the face
+                    if is_point_in_face(voxel_center, face_verts):
+                        voxel_grid[x, y, z] = True
+                        
+                        # Apply texture color if available
+                        if face_uvs and len(face_uvs) >= 3:
+                            u, v = interpolate_uv(voxel_center, face_verts, face_uvs)
+                            color = get_texture_color(texture_array, u, v)
+                        else:
+                            color = (128, 128, 128)  # Default gray
+                        
+                        voxel_colors[(x, y, z)] = color
     
-    print(f"Processing {len(face_data)} valid faces with spatial optimization...")
-    
-    # Process voxels in spatial chunks for better cache locality
-    chunk_size = 8  # Process 8x8x8 voxel chunks
-    voxels_processed = 0
-    max_voxels = voxel_size ** 3
-    
-    for chunk_x in range(0, voxel_size, chunk_size):
-        for chunk_y in range(0, voxel_size, chunk_size):
-            for chunk_z in range(0, voxel_size, chunk_size):
-                chunk_end_x = min(chunk_x + chunk_size, voxel_size)
-                chunk_end_y = min(chunk_y + chunk_size, voxel_size)
-                chunk_end_z = min(chunk_z + chunk_size, voxel_size)
-                
-                # Find faces that might intersect this chunk
-                relevant_faces = []
-                for face_verts, voxel_verts, face_uvs, min_v, max_v in face_data:
-                    # Check if face bounding box intersects chunk
-                    if (min_v[0] <= chunk_end_x and max_v[0] >= chunk_x and
-                        min_v[1] <= chunk_end_y and max_v[1] >= chunk_y and
-                        min_v[2] <= chunk_end_z and max_v[2] >= chunk_z):
-                        relevant_faces.append((face_verts, voxel_verts, face_uvs))
-                
-                # Process voxels in this chunk
-                for x in range(chunk_x, chunk_end_x):
-                    for y in range(chunk_y, chunk_end_y):
-                        for z in range(chunk_z, chunk_end_z):
-                            if voxel_grid[x, y, z]:
-                                continue
-                                
-                            point = np.array([x, y, z], dtype=float)
-                            
-                            # Check against relevant faces only
-                            for face_verts, voxel_verts, face_uvs in relevant_faces:
-                                if is_point_in_face(point, voxel_verts):
-                                    voxel_grid[x, y, z] = True
-                                    
-                                    # Apply texture color if available
-                                    if face_uvs and len(face_uvs) >= 3:
-                                        u, v = interpolate_uv(point, voxel_verts, face_uvs)
-                                        color = get_texture_color(texture_array, u, v)
-                                    else:
-                                        color = (128, 128, 128)  # Default gray
-                                    
-                                    voxel_colors[(x, y, z)] = color
-                                    voxels_processed += 1
-                                    break  # Found a face, no need to check others
-                
-                # Progress update every 1000 voxels
-                if voxels_processed % 1000 == 0 and voxels_processed > 0:
-                    progress = (voxels_processed / max_voxels) * 100
-                    print(f"Voxelization progress: {progress:.1f}% ({voxels_processed} voxels)")
-    
-    print(f"Voxelization complete: {voxels_processed} voxels generated")
+    print(f"Voxelization complete: {np.sum(voxel_grid)} voxels generated")
     
     # Simple flood fill for interior
     filled = flood_fill_exterior(voxel_grid)
