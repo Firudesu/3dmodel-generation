@@ -9,6 +9,7 @@ import struct
 from pathlib import Path
 from PIL import Image
 import os
+import re
 
 def parse_obj_file(obj_path):
     """Parse OBJ file and extract vertices, faces, and texture coordinates (simplified)"""
@@ -76,6 +77,157 @@ def load_texture(texture_path):
     except Exception as e:
         print(f"Failed to load texture: {e}")
         return None
+
+def parse_mtl_file(mtl_path):
+    """Parse MTL file to extract material and texture information"""
+    materials = {}
+    current_material = None
+    
+    if not mtl_path or not os.path.exists(mtl_path):
+        return materials
+    
+    try:
+        with open(mtl_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                
+                # Skip empty lines and comments
+                if not line or line.startswith('#'):
+                    continue
+                
+                parts = line.split()
+                if not parts:
+                    continue
+                
+                command = parts[0].lower()
+                
+                if command == 'newmtl':
+                    # New material definition
+                    if len(parts) > 1:
+                        current_material = parts[1]
+                        materials[current_material] = {
+                            'texture_diffuse': None,
+                            'texture_ambient': None,
+                            'texture_specular': None,
+                            'texture_normal': None,
+                            'texture_bump': None,
+                            'kd': (0.8, 0.8, 0.8),  # Default diffuse color
+                            'ka': (0.2, 0.2, 0.2),  # Default ambient color
+                            'ks': (1.0, 1.0, 1.0),  # Default specular color
+                        }
+                
+                elif current_material and command == 'map_kd':
+                    # Diffuse texture map
+                    if len(parts) > 1:
+                        texture_path = ' '.join(parts[1:])  # Handle paths with spaces
+                        materials[current_material]['texture_diffuse'] = texture_path
+                
+                elif current_material and command == 'map_ka':
+                    # Ambient texture map
+                    if len(parts) > 1:
+                        texture_path = ' '.join(parts[1:])
+                        materials[current_material]['texture_ambient'] = texture_path
+                
+                elif current_material and command == 'map_ks':
+                    # Specular texture map
+                    if len(parts) > 1:
+                        texture_path = ' '.join(parts[1:])
+                        materials[current_material]['texture_specular'] = texture_path
+                
+                elif current_material and command == 'map_bump':
+                    # Bump map
+                    if len(parts) > 1:
+                        texture_path = ' '.join(parts[1:])
+                        materials[current_material]['texture_bump'] = texture_path
+                
+                elif current_material and command == 'bump':
+                    # Bump map (alternative syntax)
+                    if len(parts) > 1:
+                        texture_path = ' '.join(parts[1:])
+                        materials[current_material]['texture_bump'] = texture_path
+                
+                elif current_material and command == 'kd':
+                    # Diffuse color
+                    if len(parts) >= 4:
+                        try:
+                            r = float(parts[1])
+                            g = float(parts[2])
+                            b = float(parts[3])
+                            materials[current_material]['kd'] = (r, g, b)
+                        except ValueError:
+                            pass
+                
+                elif current_material and command == 'ka':
+                    # Ambient color
+                    if len(parts) >= 4:
+                        try:
+                            r = float(parts[1])
+                            g = float(parts[2])
+                            b = float(parts[3])
+                            materials[current_material]['ka'] = (r, g, b)
+                        except ValueError:
+                            pass
+                
+                elif current_material and command == 'ks':
+                    # Specular color
+                    if len(parts) >= 4:
+                        try:
+                            r = float(parts[1])
+                            g = float(parts[2])
+                            b = float(parts[3])
+                            materials[current_material]['ks'] = (r, g, b)
+                        except ValueError:
+                            pass
+    
+    except Exception as e:
+        print(f"Failed to parse MTL file: {e}")
+        return {}
+    
+    return materials
+
+def find_texture_files(obj_path, mtl_materials=None):
+    """Automatically find texture files associated with OBJ"""
+    obj_dir = os.path.dirname(obj_path)
+    obj_name = os.path.splitext(os.path.basename(obj_path))[0]
+    
+    texture_files = []
+    
+    # If we have MTL materials, use those first
+    if mtl_materials:
+        for material_name, material_data in mtl_materials.items():
+            for texture_type, texture_path in material_data.items():
+                if texture_path and texture_type.startswith('texture_'):
+                    # Resolve relative paths
+                    if not os.path.isabs(texture_path):
+                        full_path = os.path.join(obj_dir, texture_path)
+                    else:
+                        full_path = texture_path
+                    
+                    if os.path.exists(full_path):
+                        texture_files.append(full_path)
+    
+    # Fallback: search for common texture patterns
+    if not texture_files:
+        common_patterns = [
+            f"{obj_name}.jpg",
+            f"{obj_name}.jpeg", 
+            f"{obj_name}.png",
+            f"{obj_name}_diffuse.jpg",
+            f"{obj_name}_diffuse.png",
+            f"{obj_name}_texture.jpg",
+            f"{obj_name}_texture.png",
+            "texture.jpg",
+            "texture.png",
+            "diffuse.jpg",
+            "diffuse.png"
+        ]
+        
+        for pattern in common_patterns:
+            full_path = os.path.join(obj_dir, pattern)
+            if os.path.exists(full_path):
+                texture_files.append(full_path)
+    
+    return texture_files
 
 def get_texture_color(texture_array, u, v):
     """Sample color from texture at UV coordinates with improved sampling"""
@@ -600,8 +752,8 @@ def get_default_palette():
     
     return palette
 
-def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size=None):
-    """Main conversion function with simple texture support"""
+def convert_obj_to_vox(obj_path, texture_path=None, mtl_path=None, output_path=None, voxel_size=None):
+    """Main conversion function with MTL and texture support"""
     if output_path is None:
         output_path = Path(obj_path).with_suffix('.vox')
     
@@ -615,18 +767,50 @@ def convert_obj_to_vox(obj_path, texture_path=None, output_path=None, voxel_size
     if len(vertices) == 0:
         raise ValueError("No vertices found in OBJ file")
     
-    # Load texture if provided
-    texture_array = None
-    if texture_path and os.path.exists(texture_path):
-        print(f"Loading texture: {texture_path}")
-        texture_array = load_texture(texture_path)
-        if texture_array is not None:
-            print(f"Texture loaded: {texture_array.shape}")
-            print(f"Texture color range: {texture_array.min()} - {texture_array.max()}")
-        else:
-            print("Failed to load texture, using default colors")
+    # Parse MTL file if provided
+    mtl_materials = {}
+    if mtl_path and os.path.exists(mtl_path):
+        print(f"Parsing MTL file: {mtl_path}")
+        mtl_materials = parse_mtl_file(mtl_path)
+        print(f"Found {len(mtl_materials)} materials in MTL file")
+        
+        # Print material info for debugging
+        for mat_name, mat_data in mtl_materials.items():
+            print(f"  Material '{mat_name}':")
+            for tex_type, tex_path in mat_data.items():
+                if tex_path and tex_type.startswith('texture_'):
+                    print(f"    {tex_type}: {tex_path}")
+    
+    # Find texture files
+    texture_files = []
+    if mtl_materials:
+        # Use MTL materials to find textures
+        texture_files = find_texture_files(obj_path, mtl_materials)
+        print(f"Found {len(texture_files)} texture files from MTL: {texture_files}")
+    elif texture_path and os.path.exists(texture_path):
+        # Use manually provided texture
+        texture_files = [texture_path]
+        print(f"Using manually provided texture: {texture_path}")
     else:
-        print("No texture provided, using default colors")
+        # Try to find textures automatically
+        texture_files = find_texture_files(obj_path)
+        print(f"Auto-found {len(texture_files)} texture files: {texture_files}")
+    
+    # Load the first available texture
+    texture_array = None
+    if texture_files:
+        for tex_file in texture_files:
+            print(f"Attempting to load texture: {tex_file}")
+            texture_array = load_texture(tex_file)
+            if texture_array is not None:
+                print(f"Successfully loaded texture: {texture_array.shape}")
+                print(f"Texture color range: {texture_array.min()} - {texture_array.max()}")
+                break
+            else:
+                print(f"Failed to load texture: {tex_file}")
+    
+    if texture_array is None:
+        print("No texture loaded, using default colors")
     
     # Use provided voxel size or calculate appropriate size
     if voxel_size is None:

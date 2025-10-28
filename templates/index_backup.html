@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image → 3D Model Converter with Voxel Export</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            font-weight: 300;
+            margin-bottom: 10px;
+        }
+        
+        .main-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .panel {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 30px;
+            flex: 1;
+            min-width: 400px;
+        }
+        
+        .panel-header {
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .panel-header h2 {
+            color: #333;
+            font-weight: 400;
+            font-size: 1.8em;
+        }
+        
+        .panel-header .subtitle {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .upload-area {
+            border: 3px dashed #ddd;
+            border-radius: 15px;
+            padding: 30px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        
+        .upload-area:hover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+        
+        .upload-icon {
+            font-size: 48px;
+            color: #ddd;
+            margin-bottom: 10px;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 30px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .progress-container {
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .progress-bar {
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 8px;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .status-text {
+            color: #333;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        .files-container {
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .file-item {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .file-name {
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .file-type {
+            background: #667eea;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        
+        .download-btn {
+            background: #28a745;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .download-btn:hover {
+            background: #218838;
+        }
+        
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .instructions {
+            background: #e7f3ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            text-align: left;
+        }
+        
+        .instructions h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .instructions ol {
+            margin-left: 20px;
+            color: #666;
+        }
+        
+        .instructions li {
+            margin: 5px 0;
+        }
+        
+        @media (max-width: 900px) {
+            .main-container {
+                flex-direction: column;
+            }
+            
+            .panel {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎨 Image to 3D Model Converter</h1>
+        <p>Transform your images into 3D models with texture, then convert to voxel format</p>
+    </div>
+    
+    <div class="main-container">
+        <!-- Left Panel: 3D Model Generation -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>📸 Generate 3D Model</h2>
+                <p class="subtitle">Upload an image to create a textured 3D model</p>
+            </div>
+            
+            <div class="upload-area" id="uploadArea1">
+                <div class="upload-icon">📤</div>
+                <p><strong>Drop your image here</strong></p>
+                <p style="color: #999; font-size: 14px;">or click to browse</p>
+                <p style="color: #999; font-size: 12px; margin-top: 10px;">Supports JPG, PNG (Max 16MB)</p>
+                <input type="file" id="imageInput" accept="image/*">
+            </div>
+            
+            <button class="btn" id="generateBtn" style="display: none;">🚀 Generate 3D Model</button>
+            
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <p class="status-text" id="statusText">Processing...</p>
+                <p class="status-text" id="taskText" style="font-size: 12px; color: #666;"></p>
+            </div>
+            
+            <div class="error-message" id="errorMessage"></div>
+            
+            <div class="files-container" id="filesContainer">
+                <h3 style="margin-bottom: 15px;">📦 Generated Files:</h3>
+                <div id="filesList"></div>
+                <div class="instructions">
+                    <h3>✅ Your 3D model is ready!</h3>
+                    <p>Download the ZIP file which contains:</p>
+                    <ul>
+                        <li>OBJ file (3D model)</li>
+                        <li>MTL file (material properties)</li>
+                        <li>Texture images (JPG/PNG)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right Panel: Manual Voxel Conversion -->
+        <div class="panel">
+            <div class="panel-header">
+                <h2>🎮 Convert to Voxel</h2>
+                <p class="subtitle">Convert your 3D model to voxel format</p>
+            </div>
+            
+            <div class="instructions">
+                <h3>📝 How to convert to VOX:</h3>
+                <ol>
+                    <li>Extract the ZIP file you downloaded from the left panel</li>
+                    <li>Upload the OBJ file below</li>
+                    <li>Upload the texture file (optional - for preview only)</li>
+                    <li>Click "Convert to Voxel"</li>
+                    <li>Download your VOX file (64x64x64 voxel resolution)</li>
+                </ol>
+                <p><strong>Note:</strong> This converts your 3D model into actual voxels that can be edited in MagicaVoxel!</p>
+            </div>
+            
+            <div class="upload-area" id="uploadAreaObj">
+                <div class="upload-icon">📦</div>
+                <p><strong>Drop OBJ file here</strong></p>
+                <p style="color: #999; font-size: 14px;">or click to browse</p>
+                <input type="file" id="objInput" accept=".obj">
+            </div>
+            
+            <div class="upload-area" id="uploadAreaTexture">
+                <div class="upload-icon">🎨</div>
+                <p><strong>Drop texture file here (optional)</strong></p>
+                <p style="color: #999; font-size: 14px;">JPG, PNG, or MTL file</p>
+                <input type="file" id="textureInput" accept=".jpg,.jpeg,.png,.mtl">
+            </div>
+            
+            <button class="btn btn-secondary" id="convertBtn" disabled>🔧 Convert to Voxel</button>
+            
+            <div class="progress-container" id="voxelProgress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="voxelProgressFill"></div>
+                </div>
+                <p class="status-text" id="voxelStatus">Converting to voxel...</p>
+            </div>
+            
+            <div class="files-container" id="voxelResult" style="display: none;">
+                <h3 style="margin-bottom: 15px;">🎮 Voxel File Ready!</h3>
+                <div class="file-item">
+                    <div>
+                        <span class="file-name">model.vox</span>
+                        <span class="file-type">VOX</span>
+                    </div>
+                    <a href="#" class="download-btn" id="voxelDownload">Download</a>
+                </div>
+            </div>
+            
+            <div class="instructions" style="margin-top: 20px;">
+                <h3>💡 Alternative Method:</h3>
+                <p>You can also use the <a href="https://drububu.com/miscellaneous/voxelizer/" target="_blank" style="color: #667eea;">Drububu Voxelizer</a> directly:</p>
+                <ol>
+                    <li>Processing voxel conversion</li>
+                    <li>Upload your OBJ file</li>
+                    <li>Upload texture (if available)</li>
+                    <li>Adjust settings as needed</li>
+                    <li>Download the VOX file</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Left Panel: 3D Model Generation
+        const uploadArea1 = document.getElementById('uploadArea1');
+        const imageInput = document.getElementById('imageInput');
+        const generateBtn = document.getElementById('generateBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const statusText = document.getElementById('statusText');
+        const taskText = document.getElementById('taskText');
+        const errorMessage = document.getElementById('errorMessage');
+        const filesContainer = document.getElementById('filesContainer');
+        const filesList = document.getElementById('filesList');
+        
+        let selectedImage = null;
+        let statusInterval = null;
+        
+        // Handle file selection
+        uploadArea1.addEventListener('click', () => imageInput.click());
+        
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                selectedImage = file;
+                uploadArea1.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <p><strong>${file.name}</strong></p>
+                    <p style="color: #999; font-size: 14px;">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                `;
+                generateBtn.style.display = 'block';
+            }
+        });
+        
+        // Handle drag and drop
+        uploadArea1.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea1.classList.add('dragover');
+        });
+        
+        uploadArea1.addEventListener('dragleave', () => {
+            uploadArea1.classList.remove('dragover');
+        });
+        
+        uploadArea1.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea1.classList.remove('dragover');
+            
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                selectedImage = file;
+                imageInput.files = e.dataTransfer.files;
+                uploadArea1.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <p><strong>${file.name}</strong></p>
+                    <p style="color: #999; font-size: 14px;">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                `;
+                generateBtn.style.display = 'block';
+            }
+        });
+        
+        // Handle generation
+        generateBtn.addEventListener('click', async () => {
+            if (!selectedImage) return;
+            
+            const formData = new FormData();
+            formData.append('file', selectedImage);
+            
+            generateBtn.disabled = true;
+            progressContainer.style.display = 'block';
+            errorMessage.style.display = 'none';
+            filesContainer.style.display = 'none';
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    startStatusPolling();
+                } else {
+                    showError(result.error || 'Upload failed');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            }
+        });
+        
+        function startStatusPolling() {
+            statusInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/status');
+                    const status = await response.json();
+                    
+                    updateProgress(status);
+                    
+                    if (status.status === 'Complete!') {
+                        clearInterval(statusInterval);
+                        generateBtn.disabled = false;
+                        if (status.files && status.files.length > 0) {
+                            showFiles(status.files);
+                        }
+                    } else if (status.status === 'Error') {
+                        clearInterval(statusInterval);
+                        generateBtn.disabled = false;
+                        showError(status.error || 'Processing failed');
+                    }
+                } catch (error) {
+                    console.error('Status polling error:', error);
+                }
+            }, 1000);
+        }
+        
+        function updateProgress(status) {
+            progressFill.style.width = status.progress + '%';
+            statusText.textContent = status.status;
+            taskText.textContent = status.task;
+            
+            if (status.error) {
+                showError(status.error);
+            }
+        }
+        
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            progressContainer.style.display = 'none';
+        }
+        
+        function showFiles(files) {
+            filesList.innerHTML = '';
+            files.forEach(file => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div>
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-type">${file.type.toUpperCase()}</span>
+                    </div>
+                    <a href="/download/${file.path}" class="download-btn">Download</a>
+                `;
+                filesList.appendChild(fileItem);
+            });
+            filesContainer.style.display = 'block';
+        }
+        
+        // Right Panel: Voxel Conversion
+        const uploadAreaObj = document.getElementById('uploadAreaObj');
+        const objInput = document.getElementById('objInput');
+        const uploadAreaTexture = document.getElementById('uploadAreaTexture');
+        const textureInput = document.getElementById('textureInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const voxelProgress = document.getElementById('voxelProgress');
+        const voxelProgressFill = document.getElementById('voxelProgressFill');
+        const voxelStatus = document.getElementById('voxelStatus');
+        const voxelResult = document.getElementById('voxelResult');
+        const voxelDownload = document.getElementById('voxelDownload');
+        
+        let selectedObj = null;
+        let selectedTexture = null;
+        
+        // OBJ file handling
+        uploadAreaObj.addEventListener('click', () => objInput.click());
+        
+        objInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file && file.name.endsWith('.obj')) {
+                selectedObj = file;
+                uploadAreaObj.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <p><strong>${file.name}</strong></p>
+                    <p style="color: #999; font-size: 14px;">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                `;
+                checkConvertReady();
+            }
+        });
+        
+        // Texture file handling
+        uploadAreaTexture.addEventListener('click', () => textureInput.click());
+        
+        textureInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                selectedTexture = file;
+                uploadAreaTexture.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <p><strong>${file.name}</strong></p>
+                    <p style="color: #999; font-size: 14px;">${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                `;
+            }
+        });
+        
+        function checkConvertReady() {
+            convertBtn.disabled = !selectedObj;
+        }
+        
+        // Voxel conversion
+        convertBtn.addEventListener('click', async () => {
+            if (!selectedObj) return;
+            
+            const formData = new FormData();
+            formData.append('obj_file', selectedObj);
+            if (selectedTexture) {
+                formData.append('texture_file', selectedTexture);
+            }
+            
+            convertBtn.disabled = true;
+            voxelProgress.style.display = 'block';
+            voxelResult.style.display = 'none';
+            voxelProgressFill.style.width = '30%';
+            voxelStatus.textContent = 'Converting to voxel format...';
+            
+            try {
+                // Call the actual conversion endpoint
+                const response = await fetch('/convert/manual', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                voxelProgressFill.style.width = '80%';
+                const result = await response.json();
+                
+                if (result.success && result.vox_file) {
+                    voxelProgressFill.style.width = '100%';
+                    voxelStatus.textContent = 'Voxel conversion complete!';
+                    
+                    setTimeout(() => {
+                        voxelProgress.style.display = 'none';
+                        voxelResult.style.display = 'block';
+                        convertBtn.disabled = false;
+                        
+                        // Set download link to the actual file
+                        voxelDownload.href = '/download/' + result.vox_file;
+                    }, 500);
+                } else {
+                    // Conversion failed
+                    voxelStatus.textContent = result.message || 'Voxel conversion completed with texture.';
+                    voxelProgressFill.style.width = '0%';
+                    convertBtn.disabled = false;
+                    
+                    // Show error and reset after 3 seconds
+                    setTimeout(() => {
+                        voxelProgress.style.display = 'none';
+                        alert(result.message || 'Voxel conversion completed.');
+                    }, 3000);
+                }
+            } catch (error) {
+                console.error('Conversion error:', error);
+                voxelStatus.textContent = 'Network error during conversion';
+                voxelProgressFill.style.width = '0%';
+                convertBtn.disabled = false;
+                
+                setTimeout(() => {
+                    voxelProgress.style.display = 'none';
+                    alert('Network error. Please check your connection and try again.');
+                }, 2000);
+            }
+        });
+    </script>
+</body>
+</html>
