@@ -229,8 +229,16 @@ def find_texture_files(obj_path, mtl_materials=None):
     
     return texture_files
 
+def quantize_color(r, g, b, levels=32):
+    """Quantize RGB color to reduce palette size"""
+    # Quantize to levels (e.g., 32 levels = 32^3 = 32,768 colors max)
+    r = int((r / 255.0) * (levels - 1)) * (255 // (levels - 1))
+    g = int((g / 255.0) * (levels - 1)) * (255 // (levels - 1))
+    b = int((b / 255.0) * (levels - 1)) * (255 // (levels - 1))
+    return (r, g, b)
+
 def get_texture_color(texture_array, u, v):
-    """Sample color from texture at UV coordinates with improved sampling"""
+    """Sample color from texture at UV coordinates with color quantization"""
     if texture_array is None:
         return (128, 128, 128)  # Default gray color
     
@@ -250,7 +258,7 @@ def get_texture_color(texture_array, u, v):
     x2 = min(x1 + 1, w - 1)
     y2 = min(y1 + 1, h - 1)
     
-    # Clamp to array bounds (shouldn't be needed but safety first)
+    # Clamp to array bounds
     x1 = max(0, min(x1, w - 1))
     y1 = max(0, min(y1, h - 1))
     x2 = max(0, min(x2, w - 1))
@@ -271,7 +279,9 @@ def get_texture_color(texture_array, u, v):
     c2 = c12 * (1 - fx) + c22 * fx
     result = c1 * (1 - fy) + c2 * fy
     
-    return tuple(np.clip(result.astype(int), 0, 255))
+    # Quantize the result to reduce color space
+    r, g, b = np.clip(result.astype(int), 0, 255)
+    return quantize_color(r, g, b, levels=32)
 
 def calculate_voxel_size_from_obj(vertices):
     """Calculate voxel size based on actual OBJ model dimensions"""
